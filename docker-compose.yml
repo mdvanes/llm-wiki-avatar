@@ -1,0 +1,125 @@
+# Everything runs locally on CPU. Start with:  docker compose up --build
+# Then open http://localhost:3000
+#
+# The LLM is expected on the host (native Ollama is much faster than Ollama in Docker on a Mac).
+# To run Ollama in Docker instead:  docker compose --profile ollama up --build
+# with LLM_BASE_URL_DOCKER=http://ollama:11434/v1 in .env.
+
+name: llm-wiki-avatar
+
+services:
+  livekit:
+    image: livekit/livekit-server:v1.13
+    # Dev mode: API key "devkey", secret "secret". WebRTC over 7881/tcp and 7882/udp.
+    # --node-ip 127.0.0.1 makes the ICE candidates reachable from the browser via the published ports.
+    command: --dev --bind 0.0.0.0 --node-ip 127.0.0.1
+    ports:
+      - "7880:7880"
+      - "7881:7881/tcp"
+      - "7882:7882/udp"
+    # The agent shares this network namespace; it needs to reach Ollama on the host.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  speaches:
+    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    environment:
+      # Downloaded on first start (about 1 GB in total) into the hf-cache volume.
+      PRELOAD_MODELS: '["${STT_MODEL:-Systran/faster-whisper-small}","${TTS_EN_MODEL:-speaches-ai/Kokoro-82M-v1.0-ONNX}","${TTS_NL_MODEL:-speaches-ai/piper-nl_NL-mls-medium}"]'
+      WHISPER__COMPUTE_TYPE: int8
+      WHISPER__INFERENCE_DEVICE: cpu
+      STT_MODEL_TTL: "-1"
+      TTS_MODEL_TTL: "-1"
+      ENABLE_UI: "false"
+      LOG_LEVEL: info
+    volumes:
+      - hf-cache:/home/ubuntu/.cache/huggingface/hub
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      # The first start downloads the models before the server listens.
+      start_period: 15m
+    restart: unless-stopped
+
+  agent:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    # Share LiveKit's network namespace: the server advertises 127.0.0.1 as its ICE address.
+    network_mode: service:livekit
+    environment:
+      LIVEKIT_URL: ws://localhost:7880
+      LIVEKIT_API_KEY: devkey
+      LIVEKIT_API_SECRET: secret
+      AGENT_NAME: ${AGENT_NAME:-llm-wiki-avatar}
+      WIKI_DIR: /wiki
+      VOCAB_DIR: /app/vocab
+      # Bind mounts from macOS/Windows do not deliver file events; poll instead.
+      WIKI_WATCH_POLL: "true"
+      LLM_BASE_URL: ${LLM_BASE_URL_DOCKER:-http://host.docker.internal:11434/v1}
+      LLM_MODEL: ${LLM_MODEL:-qwen3:4b-instruct}
+      LLM_API_KEY: ${LLM_API_KEY:-ollama}
+      LLM_REASONING_EFFORT: ${LLM_REASONING_EFFORT:-}
+      SPEACHES_URL: http://speaches:8000/v1
+      STT_MODEL: ${STT_MODEL:-Systran/faster-whisper-small}
+      TTS_EN_MODEL: ${TTS_EN_MODEL:-speaches-ai/Kokoro-82M-v1.0-ONNX}
+      TTS_EN_VOICE: ${TTS_EN_VOICE:-af_heart}
+      TTS_NL_MODEL: ${TTS_NL_MODEL:-speaches-ai/piper-nl_NL-mls-medium}
+      TTS_NL_VOICE: ${TTS_NL_VOICE:-mls}
+      DEFAULT_LANGUAGE: ${DEFAULT_LANGUAGE:-en}
+    volumes:
+      - ${WIKI_PATH:-./sample-wiki}:/wiki:ro
+      - ./vocab:/app/vocab:ro
+    depends_on:
+      livekit:
+        condition: service_started
+      speaches:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    environment:
+      # The URL the *browser* uses to reach LiveKit.
+      LIVEKIT_URL: ${LIVEKIT_PUBLIC_URL:-ws://localhost:7880}
+      LIVEKIT_API_KEY: devkey
+      LIVEKIT_API_SECRET: secret
+      AGENT_NAME: ${AGENT_NAME:-llm-wiki-avatar}
+      WIKI_DIR: /wiki
+    volumes:
+      - ${WIKI_PATH:-./sample-wiki}:/wiki:ro
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      - livekit
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    profiles: [ollama]
+    volumes:
+      - ollama:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+
+  ollama-pull:
+    image: ollama/ollama:latest
+    profiles: [ollama]
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["ollama", "pull", "${LLM_MODEL:-qwen3:4b-instruct}"]
+    depends_on:
+      - ollama
+    restart: on-failure
+
+volumes:
+  hf-cache:
+  ollama:

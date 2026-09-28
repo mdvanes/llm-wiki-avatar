@@ -1,0 +1,24 @@
+{
+  "name": "llm-wiki-avatar",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Voice + avatar interface for an LLM Wiki, built on LiveKit Agents (Node/TypeScript).",
+  "workspaces": [
+    "agent",
+    "frontend"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev:agent": "npm run dev -w agent",
+    "dev:frontend": "npm run dev -w frontend",
+    "vocab": "npm run vocab -w agent",
+    "test": "npm test -w agent && npm test -w frontend",
+    "eval": "npm run eval -w agent",
+    "smoke": "npm run smoke -w agent",
+    "typecheck": "npm run typecheck -w agent && npm run typecheck -w frontend",
+    "build": "npm run build -w frontend",
+    "fetch-avatar": "npm run fetch-avatar -w frontend"
+  }
+}

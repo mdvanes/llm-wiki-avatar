@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.next/
+out/
+coverage/
+*.log
+.env
+.env.local
+.env.*.local
+.DS_Store
+frontend/public/avatars/*.glb
+frontend/next-env.d.ts
+*.tsbuildinfo

@@ -1,0 +1,78 @@
+import dotenv from 'dotenv';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { z } from 'zod';
+
+export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+dotenv.config({
+  path: [resolve(REPO_ROOT, '.env.local'), resolve(REPO_ROOT, '.env')],
+  quiet: true,
+});
+
+export const SUPPORTED_LANGUAGES = ['en', 'nl'] as const;
+export type Language = (typeof SUPPORTED_LANGUAGES)[number];
+
+const bool = z
+  .enum(['true', 'false', '1', '0', 'yes', 'no'])
+  .transform((v) => v === 'true' || v === '1' || v === 'yes');
+
+const schema = z.object({
+  AGENT_NAME: z.string().default('llm-wiki-avatar'),
+  // Defaults match `livekit-server --dev`.
+  LIVEKIT_URL: z.string().default('ws://localhost:7880'),
+  LIVEKIT_API_KEY: z.string().default('devkey'),
+  LIVEKIT_API_SECRET: z.string().default('secret'),
+
+  WIKI_DIR: z.string().default(resolve(REPO_ROOT, 'sample-wiki')),
+  VOCAB_DIR: z.string().default(resolve(REPO_ROOT, 'vocab')),
+  WIKI_CONTEXT_CHARS: z.coerce.number().int().positive().default(1800),
+  WIKI_INDEX_MAX_CHARS: z.coerce.number().int().positive().default(4000),
+  WIKI_PAGE_MAX_CHARS: z.coerce.number().int().positive().default(6000),
+  WIKI_WATCH_POLL: bool.default(false),
+  /** Chat role of the auto-injected wiki excerpts; some local chat templates ignore mid-conversation system messages. */
+  WIKI_CONTEXT_ROLE: z.enum(['system', 'assistant', 'user']).default('system'),
+
+  LLM_BASE_URL: z.string().default('http://localhost:11434/v1'),
+  LLM_MODEL: z.string().default('qwen3:4b-instruct'),
+  LLM_API_KEY: z.string().default('ollama'),
+  LLM_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.3),
+  /** Local models on CPU can take a while before the first token (prompt processing, model load). */
+  LLM_TIMEOUT_S: z.coerce.number().positive().default(90),
+  LLM_REASONING_EFFORT: z.enum(['none', 'minimal', 'low', 'medium', 'high']).optional(),
+
+  SPEACHES_URL: z.string().default('http://localhost:8000/v1'),
+  SPEACHES_API_KEY: z.string().default('speaches'),
+  STT_MODEL: z.string().default('Systran/faster-whisper-small'),
+  STT_FUZZY_CORRECTION: bool.default(true),
+  /** Request timeout for Speaches STT/TTS calls. */
+  SPEECH_TIMEOUT_S: z.coerce.number().positive().default(30),
+
+  TTS_EN_BASE_URL: z.string().optional(),
+  TTS_EN_MODEL: z.string().default('speaches-ai/Kokoro-82M-v1.0-ONNX'),
+  TTS_EN_VOICE: z.string().default('af_heart'),
+  TTS_NL_BASE_URL: z.string().optional(),
+  TTS_NL_MODEL: z.string().default('speaches-ai/piper-nl_NL-mls-medium'),
+  TTS_NL_VOICE: z.string().default('mls'),
+  TTS_SPEED: z.coerce.number().min(0.5).max(2).default(1),
+
+  DEFAULT_LANGUAGE: z.enum(SUPPORTED_LANGUAGES).default('en'),
+});
+
+export type Config = z.infer<typeof schema>;
+
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+  const cleaned = Object.fromEntries(
+    Object.entries(env).filter(([, v]) => v !== undefined && v !== ''),
+  );
+  const cfg = schema.parse(cleaned);
+  return {
+    ...cfg,
+    WIKI_DIR: resolve(REPO_ROOT, cfg.WIKI_DIR),
+    VOCAB_DIR: resolve(REPO_ROOT, cfg.VOCAB_DIR),
+  };
+}
+
+export function isLanguage(value: unknown): value is Language {
+  return typeof value === 'string' && (SUPPORTED_LANGUAGES as readonly string[]).includes(value);
+}
