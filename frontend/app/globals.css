@@ -1,14 +1,15 @@
 @import 'tailwindcss';
 
 @theme {
-  --color-bg: #0f1115;
-  --color-panel: #171a21;
-  --color-panel-2: #1e222b;
-  --color-border: #2a2f3a;
-  --color-fg: #e8eaf0;
-  --color-muted: #9aa3b2;
-  --color-accent: #6ea8fe;
-  --color-accent-2: #9b8cff;
+  /* Dark grays with KPN-style green accent. */
+  --color-bg: #212121;
+  --color-panel: #171717;
+  --color-panel-2: #2f2f2f;
+  --color-border: #3a3a3a;
+  --color-fg: #ececec;
+  --color-muted: #a0a0a0;
+  --color-accent: #00c300;
+  --color-accent-2: #7ee07e;
   --color-danger: #f87171;
 }
 
@@ -71,7 +72,7 @@ body {
   padding: 0.05em 0.3em;
 }
 .markdown pre {
-  background: #0b0d11;
+  background: #121212;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   padding: 0.75em 1em;

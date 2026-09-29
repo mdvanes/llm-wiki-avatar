@@ -39,10 +39,10 @@ export function phaseLabel(phase: Phase, strings: Strings): string {
 const TONE: Record<Phase, { text: string; bg: string }> = {
   waiting: { text: 'text-muted', bg: 'bg-panel-2' },
   listening: { text: 'text-muted', bg: 'bg-panel-2' },
-  hearing: { text: 'text-green-300 ring-1 ring-green-400/50', bg: 'bg-green-500/15' },
+  hearing: { text: 'text-accent ring-1 ring-accent/50', bg: 'bg-accent/15' },
   transcribing: { text: 'text-amber-200 ring-1 ring-amber-300/50', bg: 'bg-amber-400/15' },
-  thinking: { text: 'text-accent ring-1 ring-accent/50', bg: 'bg-accent/15' },
-  speaking: { text: 'text-accent', bg: 'bg-accent/15' },
+  thinking: { text: 'text-fg ring-1 ring-fg/40', bg: 'bg-fg/10' },
+  speaking: { text: 'text-fg', bg: 'bg-panel-2' },
 };
 
 function Indicator({ phase }: { phase: Phase }) {
@@ -62,7 +62,7 @@ function Indicator({ phase }: { phase: Phase }) {
   if (isProcessing(phase)) {
     return <span className="size-3 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden />;
   }
-  const dot = phase === 'listening' ? 'bg-green-400' : phase === 'speaking' ? 'bg-accent' : 'bg-muted';
+  const dot = phase === 'listening' ? 'bg-accent' : phase === 'speaking' ? 'bg-accent' : 'bg-muted';
   return <span className={`size-1.5 rounded-full ${dot}`} aria-hidden />;
 }
 
