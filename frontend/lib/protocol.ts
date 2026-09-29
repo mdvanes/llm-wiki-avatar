@@ -11,6 +11,8 @@ export const RPC_SET_INPUT_MODE = 'set_input_mode';
 export const RPC_PTT_START = 'ptt_start';
 export const RPC_PTT_END = 'ptt_end';
 export const RPC_PTT_CANCEL = 'ptt_cancel';
+/** Continues an earlier conversation; see restorePayload in lib/history.ts. */
+export const RPC_RESTORE_HISTORY = 'restore_history';
 export const LANGUAGE_ATTRIBUTE = 'language';
 export const INPUT_MODE_ATTRIBUTE = 'input_mode';
 /** Set by the agent on itself: where speech-to-text is with the user's current utterance. */

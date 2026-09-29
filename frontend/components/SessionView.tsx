@@ -6,12 +6,15 @@ import {
   useSessionContext,
   useSessionMessages,
 } from '@livekit/components-react';
-import { type FormEvent, useCallback, useEffect, useState } from 'react';
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useConversationRecorder } from '@/hooks/useConversationRecorder';
 import { useWikiStreams } from '@/hooks/useWikiStreams';
+import { type Conversation, mergeEntries, restorePayload } from '@/lib/history';
 import type { Language, Strings } from '@/lib/language';
 import type { AvatarConfig } from '@/lib/server-config';
 import {
   type InputMode,
+  RPC_RESTORE_HISTORY,
   RPC_SET_INPUT_MODE,
   RPC_SET_LANGUAGE,
   SPEECH_STATE_ATTRIBUTE,
@@ -22,11 +25,12 @@ import { AnswerCard } from './AnswerCard';
 import { ConversationStatus, phaseLabel } from './ConversationStatus';
 import { InputModeSelector } from './InputModeSelector';
 import { LanguageSelector } from './LanguageSelector';
+import { ShowHistoryButton } from './HistorySidebar';
 import { MicButton } from './MicButton';
 import { PageViewer, type PageRef } from './PageViewer';
 import { SourceChips } from './SourceChips';
 import { TalkingHeadAvatar } from './TalkingHeadAvatar';
-import { Transcript } from './Transcript';
+import { Transcript, toTranscriptEntry } from './Transcript';
 
 interface Props {
   avatar: AvatarConfig;
@@ -35,6 +39,43 @@ interface Props {
   onLanguageChange: (language: Language) => void;
   inputMode: InputMode;
   onInputModeChange: (mode: InputMode) => void;
+  /** An earlier conversation that this session continues. */
+  previous?: Conversation;
+  /** Id under which this session is saved in the history. */
+  conversationId: string;
+  onSave: (conversation: Conversation) => void;
+  /** Set when the history sidebar is hidden. */
+  onShowHistory?: () => void;
+}
+
+const RESTORE_ATTEMPTS = 5;
+const RESTORE_RETRY_MS = 1000;
+
+/** Sends the earlier conversation to the agent once it is connected, so it can refer back to it. */
+function useRestoreHistory(previous: Conversation | undefined, agentIdentity: string | undefined) {
+  const { localParticipant } = useLocalParticipant();
+  const sent = useRef(false);
+  useEffect(() => {
+    if (!previous || !agentIdentity || sent.current) return;
+    sent.current = true;
+    let cancelled = false;
+    const payload = restorePayload(previous);
+    (async () => {
+      // The agent registers its RPC methods just after joining, so the first call can be early.
+      for (let attempt = 1; attempt <= RESTORE_ATTEMPTS && !cancelled; attempt++) {
+        try {
+          await localParticipant.performRpc({ destinationIdentity: agentIdentity, method: RPC_RESTORE_HISTORY, payload });
+          return;
+        } catch (err) {
+          if (attempt === RESTORE_ATTEMPTS) console.error('restore_history failed', err);
+          else await new Promise((r) => setTimeout(r, RESTORE_RETRY_MS));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [previous, agentIdentity, localParticipant]);
 }
 
 /** Smooths over the brief "listening" gap between the transcript and the agent starting to think. */
@@ -51,7 +92,18 @@ function useSettledPhase(phase: Phase): Phase {
   return shown;
 }
 
-export function SessionView({ avatar, strings, language, onLanguageChange, inputMode, onInputModeChange }: Props) {
+export function SessionView({
+  avatar,
+  strings,
+  language,
+  onLanguageChange,
+  inputMode,
+  onInputModeChange,
+  previous,
+  conversationId,
+  onSave,
+  onShowHistory,
+}: Props) {
   const session = useSessionContext();
   const agent = useAgent();
   const { localParticipant } = useLocalParticipant();
@@ -60,6 +112,14 @@ export function SessionView({ avatar, strings, language, onLanguageChange, input
   const [page, setPage] = useState<PageRef | null>(null);
   const [draft, setDraft] = useState('');
   const [switching, setSwitching] = useState(false);
+
+  const entries = useMemo(
+    () => mergeEntries(previous?.messages ?? [], messages.map(toTranscriptEntry)),
+    [previous, messages],
+  );
+  const allAnswers = useMemo(() => mergeEntries(previous?.answers ?? [], answers), [previous, answers]);
+  useConversationRecorder({ id: conversationId, previous, messages: entries, answers: allAnswers, language, onSave });
+  useRestoreHistory(previous, agent.isConnected ? agent.identity : undefined);
 
   // The agent announces its language on start and after each switch; keep the selector in sync.
   useEffect(() => {
@@ -121,14 +181,20 @@ export function SessionView({ avatar, strings, language, onLanguageChange, input
   const phase = useSettledPhase(conversationPhase(agent.state, speechState));
   const busy = phase === 'hearing' || phase === 'transcribing' || phase === 'thinking';
   const agentAudio = agent.microphoneTrack?.publication.track?.mediaStreamTrack;
-  const newestFirst = [...answers].reverse();
+  const newestFirst = [...allAnswers].reverse();
 
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          {onShowHistory && <ShowHistoryButton onClick={onShowHistory} label={strings.showHistory} />}
           <span className="font-semibold">📚 LLM Wiki</span>
           <ConversationStatus phase={phase} strings={strings} />
+          {previous && (
+            <span className="hidden truncate text-xs text-muted xl:inline" title={previous.title}>
+              ↩ {strings.continuing}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <InputModeSelector
@@ -219,7 +285,7 @@ export function SessionView({ avatar, strings, language, onLanguageChange, input
           </h2>
           <div className="min-h-0 flex-1 overflow-y-auto">
             <Transcript
-              messages={messages}
+              messages={entries}
               emptyText={strings.empty}
               thinking={phase === 'thinking'}
               pendingSpeech={phase === 'hearing' || phase === 'transcribing' ? phaseLabel(phase, strings) : undefined}

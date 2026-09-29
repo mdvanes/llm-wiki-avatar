@@ -3,6 +3,7 @@ import type * as openai from '@livekit/agents-plugin-openai';
 import type { AudioFrame } from '@livekit/rtc-node';
 import { ReadableStream, TransformStream } from 'node:stream/web';
 import type { Config, Language } from './config.ts';
+import { type HistoryTurn, withRestoredHistory } from './history.ts';
 import type { SttTap } from './inputMode.ts';
 import type { LanguageProfile } from './language.ts';
 import { MoodFilter } from './mood.ts';
@@ -105,6 +106,12 @@ export class WikiAgent extends voice.Agent {
       this.session.interrupt();
       this.session.say(`[mood:happy] ${this.profile.switched}`);
     }
+  }
+
+  /** Continues an earlier conversation: its turns become part of this session's chat history. */
+  async restoreHistory(turns: HistoryTurn[]): Promise<void> {
+    if (turns.length === 0) return;
+    await this.updateChatCtx(withRestoredHistory(this.chatCtx, turns));
   }
 
   /** Rebuilds instructions, e.g. after the wiki index changed on disk. */

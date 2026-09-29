@@ -2,6 +2,7 @@
 
 import type { Language, Strings } from '@/lib/language';
 import type { InputMode } from '@/lib/protocol';
+import { ShowHistoryButton } from './HistorySidebar';
 import { InputModeSelector } from './InputModeSelector';
 import { LanguageSelector } from './LanguageSelector';
 
@@ -14,6 +15,8 @@ interface Props {
   onStart: () => void;
   connecting: boolean;
   error?: string;
+  /** Set when the history sidebar is hidden. */
+  onShowHistory?: () => void;
 }
 
 export function WelcomeView({
@@ -25,9 +28,15 @@ export function WelcomeView({
   onStart,
   connecting,
   error,
+  onShowHistory,
 }: Props) {
   return (
-    <main className="grid min-h-full place-items-center p-6">
+    <main className="relative grid min-h-full place-items-center p-6">
+      {onShowHistory && (
+        <div className="absolute left-4 top-3">
+          <ShowHistoryButton onClick={onShowHistory} label={strings.showHistory} />
+        </div>
+      )}
       <div className="flex max-w-md flex-col items-center gap-6 text-center">
         <div className="grid size-20 place-items-center rounded-full bg-gradient-to-br from-accent to-accent-2 text-4xl">
           📚

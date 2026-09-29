@@ -3,6 +3,7 @@ import * as openai from '@livekit/agents-plugin-openai';
 import type { ReadableStream } from 'node:stream/web';
 import { fileURLToPath } from 'node:url';
 import { type Config, type Language, isLanguage, loadConfig } from './config.ts';
+import { parseHistoryPayload } from './history.ts';
 import { InputModeController, SttTap, isInputMode } from './inputMode.ts';
 import { languageProfiles } from './language.ts';
 import { MoodFilter } from './mood.ts';
@@ -10,6 +11,7 @@ import {
   RPC_PTT_CANCEL,
   RPC_PTT_END,
   RPC_PTT_START,
+  RPC_RESTORE_HISTORY,
   RPC_SET_INPUT_MODE,
   RPC_SET_LANGUAGE,
   RoomPublisher,
@@ -127,6 +129,13 @@ export default defineAgent({
       logger.info({ language, callerIdentity }, 'language switch requested');
       await agent.setLanguage(language);
       return language;
+    });
+
+    ctx.room.localParticipant?.registerRpcMethod(RPC_RESTORE_HISTORY, async ({ payload }) => {
+      const turns = parseHistoryPayload(payload);
+      await agent.restoreHistory(turns);
+      logger.info({ turns: turns.length }, 'continuing an earlier conversation');
+      return String(turns.length);
     });
 
     let publishedSpeechState = '';

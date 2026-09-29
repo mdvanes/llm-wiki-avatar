@@ -2,12 +2,13 @@
 
 import type { ReceivedMessage } from '@livekit/components-react';
 import { useEffect, useRef } from 'react';
+import type { TranscriptEntry } from '@/lib/history';
 import { Markdown } from './Markdown';
 
 interface Props {
-  messages: ReceivedMessage[];
+  messages: TranscriptEntry[];
   emptyText: string;
-  thinking: boolean;
+  thinking?: boolean;
   /** Shown as a placeholder user message while the user's speech is being heard or transcribed. */
   pendingSpeech?: string;
   onWikiLink?: (target: string) => void;
@@ -17,6 +18,10 @@ function isFromUser(message: ReceivedMessage): boolean {
   if (message.type === 'userTranscript') return true;
   if (message.type === 'agentTranscript') return false;
   return message.from?.isLocal ?? false;
+}
+
+export function toTranscriptEntry(message: ReceivedMessage): TranscriptEntry {
+  return { id: message.id, fromUser: isFromUser(message), text: message.message, timestamp: message.timestamp };
 }
 
 export function Transcript({ messages, emptyText, thinking, pendingSpeech, onWikiLink }: Props) {
@@ -31,7 +36,7 @@ export function Transcript({ messages, emptyText, thinking, pendingSpeech, onWik
   return (
     <ol className="flex flex-col gap-3 p-4">
       {messages.map((m) => {
-        const user = isFromUser(m);
+        const user = m.fromUser;
         return (
           <li key={m.id} className={`flex ${user ? 'justify-end' : 'justify-start'}`}>
             <div
@@ -39,7 +44,7 @@ export function Transcript({ messages, emptyText, thinking, pendingSpeech, onWik
                 user ? 'rounded-br-sm bg-accent/20 text-fg' : 'rounded-bl-sm bg-panel-2 text-fg'
               }`}
             >
-              {user ? m.message : <Markdown onWikiLink={onWikiLink}>{m.message}</Markdown>}
+              {user ? m.text : <Markdown onWikiLink={onWikiLink}>{m.text}</Markdown>}
             </div>
           </li>
         );

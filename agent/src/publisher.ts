@@ -14,6 +14,8 @@ export const RPC_SET_INPUT_MODE = 'set_input_mode';
 export const RPC_PTT_START = 'ptt_start';
 export const RPC_PTT_END = 'ptt_end';
 export const RPC_PTT_CANCEL = 'ptt_cancel';
+/** Payload: JSON array of `{ role: 'user' | 'assistant', text }` from an earlier conversation. */
+export const RPC_RESTORE_HISTORY = 'restore_history';
 
 export interface Source {
   path: string;
