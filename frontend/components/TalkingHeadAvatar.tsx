@@ -32,6 +32,8 @@ interface Props {
   audioTrack?: MediaStreamTrack;
   agentState: AgentState;
   mood?: MoodEvent;
+  /** The user stopped the voice: close the mouth and hold still, even while audio is still draining. */
+  silenced?: boolean;
   className?: string;
 }
 
@@ -147,12 +149,14 @@ class VoiceAnalyser {
   }
 }
 
-export function TalkingHeadAvatar({ avatar, audioTrack, agentState, mood, className }: Props) {
+export function TalkingHeadAvatar({ avatar, audioTrack, agentState, mood, silenced = false, className }: Props) {
   const nodeRef = useRef<HTMLDivElement>(null);
   const headRef = useRef<TalkingHeadType | null>(null);
   const analyserRef = useRef<VoiceAnalyser | null>(null);
   const lipsync = useRef(new LipSync());
   const lastShape = useRef<MouthShape>(CLOSED);
+  const silencedRef = useRef(silenced);
+  silencedRef.current = silenced;
   const [status, setStatus] = useState<{ state: 'loading' | 'ready' | 'error'; detail?: string }>({
     state: 'loading',
   });
@@ -199,7 +203,7 @@ export function TalkingHeadAvatar({ avatar, audioTrack, agentState, mood, classN
           update: (dt: number) => {
             aimEyes?.();
             const analyser = analyserRef.current;
-            if (!analyser) {
+            if (!analyser || silencedRef.current) {
               if (lastShape.current !== CLOSED) applyMouth(CLOSED);
               return;
             }
@@ -260,12 +264,24 @@ export function TalkingHeadAvatar({ avatar, audioTrack, agentState, mood, classN
     }
   }, [mood, status.state]);
 
+  useEffect(() => {
+    if (!silenced) return;
+    lipsync.current.reset();
+    try {
+      headRef.current?.stopGesture(300);
+    } catch {
+      // Avatar not ready.
+    }
+  }, [silenced]);
+
   // Look at the user whenever the conversation state changes.
   useEffect(() => {
     const head = headRef.current;
     if (!head || status.state !== 'ready') return;
     head.makeEyeContact(2000);
-    if (agentState === 'speaking' && avatar.view === 'upper' && Math.random() < 0.4) head.speakWithHands(300, 0.6);
+    if (agentState === 'speaking' && !silencedRef.current && avatar.view === 'upper' && Math.random() < 0.4) {
+      head.speakWithHands(300, 0.6);
+    }
   }, [agentState, status.state, avatar.view]);
 
   return (

@@ -14,6 +14,7 @@ import {
   RPC_RESTORE_HISTORY,
   RPC_SET_INPUT_MODE,
   RPC_SET_LANGUAGE,
+  RPC_STOP_SPEAKING,
   RoomPublisher,
 } from './publisher.ts';
 import { SpeachesTTS } from './speachesTts.ts';
@@ -138,6 +139,12 @@ export default defineAgent({
       return String(turns.length);
     });
 
+    ctx.room.localParticipant?.registerRpcMethod(RPC_STOP_SPEAKING, async ({ payload }) => {
+      agent.stopSpeaking(payload.trim());
+      logger.info('speech stopped by the user');
+      return 'ok';
+    });
+
     let publishedSpeechState = '';
     const publishSpeechState = () => {
       const state = sttTap.state;
@@ -186,7 +193,7 @@ export default defineAgent({
     publisher.language(language);
     logger.info({ language, inputMode: inputMode.mode, participant: participant.identity }, 'session started');
 
-    session.say(`[mood:happy] ${profiles[language].greeting}`);
+    agent.say(`[mood:happy] ${profiles[language].greeting}`);
   },
 });
 

@@ -9,6 +9,7 @@ import type { LanguageProfile } from './language.ts';
 import { MoodFilter } from './mood.ts';
 import { buildInstructions, buildWikiContext, wikiOverview } from './prompts.ts';
 import type { Publisher } from './publisher.ts';
+import { ReplyCapture, captureLlmStream } from './replyCapture.ts';
 import type { SpeachesTTS } from './speachesTts.ts';
 import { type StreamingTextFilter, filterTextStream } from './textStream.ts';
 import { SourceTracker, createWikiTools } from './tools.ts';
@@ -67,6 +68,8 @@ export class WikiAgent extends voice.Agent {
   readonly #sources: SourceTracker;
   #language: Language;
   #lastUserMessageId: string | undefined;
+  /** Text of the reply currently being generated or spoken. */
+  #reply: ReplyCapture | undefined;
 
   constructor(opts: WikiAgentOptions) {
     const sources = new SourceTracker(opts.publisher);
@@ -104,8 +107,52 @@ export class WikiAgent extends voice.Agent {
     this.#opts.publisher.language(language);
     if (announce) {
       this.session.interrupt();
-      this.session.say(`[mood:happy] ${this.profile.switched}`);
+      this.say(`[mood:happy] ${this.profile.switched}`);
     }
+  }
+
+  /** Speaks a fixed text; use instead of `session.say` so the text can be shown in full when stopped. */
+  say(text: string): voice.SpeechHandle {
+    this.#reply = ReplyCapture.of(text);
+    return this.session.say(text);
+  }
+
+  /**
+   * Stops the voice right away (the button in the UI), but keeps generating the reply and streams
+   * all of its text to the UI, where it replaces the transcript message `target`.
+   */
+  stopSpeaking(target: string): void {
+    const reply = this.#reply;
+    reply?.keep();
+    const before = new Set(this.chatCtx.items.map((item) => item.id));
+    this.session.interrupt();
+    if (!reply) return;
+
+    const writer = this.#opts.publisher.fullReply(target);
+    reply.follow(
+      (text) => writer.write(text),
+      () => writer.close(),
+    );
+
+    // The chat history gets the spoken part only; give the model the whole reply that is on screen.
+    const session = this.session;
+    const onItem = (ev: voice.ConversationItemAddedEvent) => {
+      const item = ev.item;
+      if (item.type !== 'message' || item.role !== 'assistant' || before.has(item.id)) return;
+      session.off(voice.AgentSessionEventTypes.ConversationItemAdded, onItem);
+      clearTimeout(timer);
+      if (item.interrupted) void reply.complete().then((text) => this.#replaceMessageText(item.id, text));
+    };
+    const timer = setTimeout(() => session.off(voice.AgentSessionEventTypes.ConversationItemAdded, onItem), 10_000);
+    session.on(voice.AgentSessionEventTypes.ConversationItemAdded, onItem);
+  }
+
+  async #replaceMessageText(id: string, text: string): Promise<void> {
+    const ctx = this.chatCtx.copy();
+    const item = ctx.getById(id);
+    if (item?.type !== 'message' || !text.trim()) return;
+    item.content = [text];
+    await this.updateChatCtx(ctx).catch((err: unknown) => log().warn({ err }, 'could not update the stopped reply'));
   }
 
   /** Continues an earlier conversation: its turns become part of this session's chat history. */
@@ -135,7 +182,10 @@ export class WikiAgent extends voice.Agent {
     toolCtx: llm.ToolContext,
     modelSettings: voice.ModelSettings,
   ): Promise<ReadableStream<llm.ChatChunk | string | FlushSentinel> | null> {
-    return voice.Agent.default.llmNode(this, this.withWikiContext(chatCtx), toolCtx, modelSettings);
+    const stream = await voice.Agent.default.llmNode(this, this.withWikiContext(chatCtx), toolCtx, modelSettings);
+    if (!stream) return stream;
+    this.#reply = new ReplyCapture();
+    return captureLlmStream(stream, this.#reply);
   }
 
   withWikiContext(chatCtx: llm.ChatContext): llm.ChatContext {

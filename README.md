@@ -30,6 +30,9 @@ Browser (Next.js)                                   agent (Node, @livekit/agents
   the agent by talking. *Push to talk*: hold the mic button or the Space bar while you talk. The agent listens only
   while it is held, and answers when you release it. Pick a mode on the start screen or switch during a session; the
   choice is remembered in the browser. A ring around the mic button grows with your voice while speech is picked up.
+- **Stop button.** While the agent speaks, the *Send* button becomes *Stop*. Clicking it silences the voice and the
+  avatar right away (`stop_speaking` RPC), but the reply is still generated to the end. Its full text is streamed
+  on the `wiki.reply` topic and replaces the cut-off transcript message, without waiting for speech.
 - **Progress status.** Speech recognition and answering can take several seconds on CPU, so the UI shows each step:
   *Hearing you…*, *Processing your speech…* and *Preparing an answer…*, with a seconds counter. The status appears
   in the header, as a banner over the avatar, and as a placeholder message in the transcript. The agent publishes the

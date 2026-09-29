@@ -6,17 +6,20 @@ import {
   useSessionContext,
   useSessionMessages,
 } from '@livekit/components-react';
+import { RemoteAudioTrack } from 'livekit-client';
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useConversationRecorder } from '@/hooks/useConversationRecorder';
 import { useWikiStreams } from '@/hooks/useWikiStreams';
 import { type Conversation, mergeEntries, restorePayload } from '@/lib/history';
 import type { Language, Strings } from '@/lib/language';
+import { stopTarget, withFullReplies } from '@/lib/reply';
 import type { AvatarConfig } from '@/lib/server-config';
 import {
   type InputMode,
   RPC_RESTORE_HISTORY,
   RPC_SET_INPUT_MODE,
   RPC_SET_LANGUAGE,
+  RPC_STOP_SPEAKING,
   SPEECH_STATE_ATTRIBUTE,
   toSpeechState,
 } from '@/lib/protocol';
@@ -78,6 +81,9 @@ function useRestoreHistory(previous: Conversation | undefined, agentIdentity: st
   }, [previous, agentIdentity, localParticipant]);
 }
 
+/** Audio still buffered in the browser after the agent stops; kept silent until it has drained. */
+const SILENCE_TAIL_MS = 500;
+
 /** Smooths over the brief "listening" gap between the transcript and the agent starting to think. */
 function useSettledPhase(phase: Phase): Phase {
   const [shown, setShown] = useState(phase);
@@ -108,14 +114,17 @@ export function SessionView({
   const agent = useAgent();
   const { localParticipant } = useLocalParticipant();
   const { messages, send } = useSessionMessages();
-  const { mood, answers, sources, agentLanguage } = useWikiStreams();
+  const { mood, answers, sources, agentLanguage, replies } = useWikiStreams();
   const [page, setPage] = useState<PageRef | null>(null);
   const [draft, setDraft] = useState('');
   const [switching, setSwitching] = useState(false);
+  /** Set when the user stopped the voice, until the agent has stopped speaking. */
+  const [silenced, setSilenced] = useState(false);
 
+  const current = useMemo(() => messages.map(toTranscriptEntry), [messages]);
   const entries = useMemo(
-    () => mergeEntries(previous?.messages ?? [], messages.map(toTranscriptEntry)),
-    [previous, messages],
+    () => withFullReplies(mergeEntries(previous?.messages ?? [], current), replies),
+    [previous, current, replies],
   );
   const allAnswers = useMemo(() => mergeEntries(previous?.answers ?? [], answers), [previous, answers]);
   useConversationRecorder({ id: conversationId, previous, messages: entries, answers: allAnswers, language, onSave });
@@ -177,10 +186,41 @@ export function SessionView({
     await send(text);
   };
 
+  const agentAudioTrack = agent.microphoneTrack?.publication.track;
+  const speaking = agent.state === 'speaking';
+
+  const stopSpeaking = async () => {
+    if (!agent.identity) return;
+    setSilenced(true);
+    try {
+      await localParticipant.performRpc({
+        destinationIdentity: agent.identity,
+        method: RPC_STOP_SPEAKING,
+        payload: stopTarget(current),
+      });
+    } catch (err) {
+      console.error('stop_speaking failed', err);
+      setSilenced(false);
+    }
+  };
+
+  // Mute what the browser still has buffered, and unmute once the agent is done.
+  useEffect(() => {
+    if (!(agentAudioTrack instanceof RemoteAudioTrack)) return;
+    if (silenced) {
+      agentAudioTrack.setVolume(0);
+      if (speaking) return;
+      const timer = setTimeout(() => setSilenced(false), SILENCE_TAIL_MS);
+      return () => clearTimeout(timer);
+    }
+    agentAudioTrack.setVolume(1);
+  }, [silenced, speaking, agentAudioTrack]);
+
   const speechState = toSpeechState(agent.attributes?.[SPEECH_STATE_ATTRIBUTE]);
   const phase = useSettledPhase(conversationPhase(agent.state, speechState));
   const busy = phase === 'hearing' || phase === 'transcribing' || phase === 'thinking';
-  const agentAudio = agent.microphoneTrack?.publication.track?.mediaStreamTrack;
+  const agentAudio = agentAudioTrack?.mediaStreamTrack;
+  const showStop = speaking && !silenced;
   const newestFirst = [...allAnswers].reverse();
 
   return (
@@ -235,6 +275,7 @@ export function SessionView({
                 audioTrack={agentAudio}
                 agentState={agent.state}
                 mood={mood}
+                silenced={silenced}
               />
               {busy && (
                 <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
@@ -250,13 +291,26 @@ export function SessionView({
                 placeholder={strings.typePlaceholder}
                 className="min-w-0 flex-1 rounded-full border border-border bg-panel-2 px-4 py-2 text-sm outline-none focus:border-accent"
               />
-              <button
-                type="submit"
-                disabled={!draft.trim()}
-                className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-bg disabled:opacity-40"
-              >
-                {strings.send}
-              </button>
+              {showStop ? (
+                <button
+                  type="button"
+                  onClick={() => void stopSpeaking()}
+                  title={strings.stopSpeaking}
+                  aria-label={strings.stopSpeaking}
+                  className="flex items-center gap-1.5 rounded-full bg-danger px-4 py-2 text-sm font-semibold text-bg"
+                >
+                  <span className="size-2.5 rounded-[2px] bg-current" aria-hidden />
+                  {strings.stop}
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!draft.trim()}
+                  className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-bg disabled:opacity-40"
+                >
+                  {strings.send}
+                </button>
+              )}
             </form>
           </div>
           <div className="flex min-h-[160px] flex-1 flex-col rounded-xl border border-border bg-panel">

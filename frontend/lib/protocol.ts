@@ -4,7 +4,11 @@ export const TOPICS = {
   answer: 'wiki.answer',
   sources: 'wiki.sources',
   language: 'wiki.language',
+  reply: 'wiki.reply',
 } as const;
+
+/** Attribute on a `wiki.reply` stream: the transcript message the full reply belongs to. */
+export const REPLY_TARGET_ATTRIBUTE = 'target';
 
 export const RPC_SET_LANGUAGE = 'set_language';
 export const RPC_SET_INPUT_MODE = 'set_input_mode';
@@ -13,6 +17,8 @@ export const RPC_PTT_END = 'ptt_end';
 export const RPC_PTT_CANCEL = 'ptt_cancel';
 /** Continues an earlier conversation; see restorePayload in lib/history.ts. */
 export const RPC_RESTORE_HISTORY = 'restore_history';
+/** Stops the voice at once; the rest of the reply arrives as text on the `wiki.reply` topic. */
+export const RPC_STOP_SPEAKING = 'stop_speaking';
 export const LANGUAGE_ATTRIBUTE = 'language';
 export const INPUT_MODE_ATTRIBUTE = 'input_mode';
 /** Set by the agent on itself: where speech-to-text is with the user's current utterance. */
