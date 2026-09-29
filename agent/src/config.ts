@@ -13,6 +13,11 @@ dotenv.config({
 export const SUPPORTED_LANGUAGES = ['en', 'nl'] as const;
 export type Language = (typeof SUPPORTED_LANGUAGES)[number];
 
+/** `off`: replies are text only (speech-to-text keeps working). Otherwise the gender of the TTS voice. */
+export const VOICES = ['off', 'female', 'male'] as const;
+export type Voice = (typeof VOICES)[number];
+export type VoiceGender = Exclude<Voice, 'off'>;
+
 const bool = z
   .enum(['true', 'false', '1', '0', 'yes', 'no'])
   .transform((v) => v === 'true' || v === '1' || v === 'yes');
@@ -54,9 +59,18 @@ const schema = z.object({
   TTS_NL_BASE_URL: z.string().optional(),
   TTS_NL_MODEL: z.string().default('speaches-ai/piper-nl_NL-mls-medium'),
   TTS_NL_VOICE: z.string().default('mls'),
+  // The TTS_EN_* / TTS_NL_* settings above are the female voices; these are the male ones.
+  TTS_EN_MALE_BASE_URL: z.string().optional(),
+  TTS_EN_MALE_MODEL: z.string().default('speaches-ai/Kokoro-82M-v1.0-ONNX'),
+  TTS_EN_MALE_VOICE: z.string().default('am_michael'),
+  TTS_NL_MALE_BASE_URL: z.string().optional(),
+  TTS_NL_MALE_MODEL: z.string().default('speaches-ai/piper-nl_BE-rdh-medium'),
+  TTS_NL_MALE_VOICE: z.string().default('rdh'),
   TTS_SPEED: z.coerce.number().min(0.5).max(2).default(1),
 
   DEFAULT_LANGUAGE: z.enum(SUPPORTED_LANGUAGES).default('en'),
+  /** Used when the browser does not send a voice. */
+  DEFAULT_VOICE: z.enum(VOICES).default('female'),
 });
 
 export type Config = z.infer<typeof schema>;
@@ -71,6 +85,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     WIKI_DIR: resolve(REPO_ROOT, cfg.WIKI_DIR),
     VOCAB_DIR: resolve(REPO_ROOT, cfg.VOCAB_DIR),
   };
+}
+
+export function isVoice(value: unknown): value is Voice {
+  return typeof value === 'string' && (VOICES as readonly string[]).includes(value);
 }
 
 export function isLanguage(value: unknown): value is Language {

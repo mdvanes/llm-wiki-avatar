@@ -4,8 +4,12 @@ import type { TalkingHead as TalkingHeadType, TalkingHeadMood } from '@met4citiz
 import type { AgentState } from '@livekit/components-react';
 import { useEffect, useRef, useState } from 'react';
 import { CLOSED, LipSync, type MouthShape, brightness, rms } from '@/lib/lipsync';
+import { type MissingAvatarHelp, missingAvatarHelp } from '@/lib/avatar-models';
+import type { Strings } from '@/lib/language';
+import type { AvatarGender } from '@/lib/presentation';
 import type { Mood } from '@/lib/protocol';
 import type { AvatarConfig } from '@/lib/server-config';
+import { SpinnerOverlay } from './Spinner';
 import {
   calmAvatar,
   eyeLevelCameraY,
@@ -29,6 +33,13 @@ export interface MoodEvent {
 
 interface Props {
   avatar: AvatarConfig;
+  gender: AvatarGender;
+  strings: Strings;
+  /** Shown while the model loads. */
+  loadingLabel: string;
+  /** Something is being switched: show `busyLabel` over the avatar. */
+  busy?: boolean;
+  busyLabel?: string;
   audioTrack?: MediaStreamTrack;
   agentState: AgentState;
   mood?: MoodEvent;
@@ -149,7 +160,24 @@ class VoiceAnalyser {
   }
 }
 
-export function TalkingHeadAvatar({ avatar, audioTrack, agentState, mood, silenced = false, className }: Props) {
+type Status =
+  | { state: 'loading' | 'ready' }
+  | { state: 'error'; detail?: string }
+  | { state: 'missing'; help: MissingAvatarHelp };
+
+export function TalkingHeadAvatar({
+  avatar,
+  gender,
+  strings,
+  loadingLabel,
+  busy = false,
+  busyLabel,
+  audioTrack,
+  agentState,
+  mood,
+  silenced = false,
+  className,
+}: Props) {
   const nodeRef = useRef<HTMLDivElement>(null);
   const headRef = useRef<TalkingHeadType | null>(null);
   const analyserRef = useRef<VoiceAnalyser | null>(null);
@@ -157,9 +185,7 @@ export function TalkingHeadAvatar({ avatar, audioTrack, agentState, mood, silenc
   const lastShape = useRef<MouthShape>(CLOSED);
   const silencedRef = useRef(silenced);
   silencedRef.current = silenced;
-  const [status, setStatus] = useState<{ state: 'loading' | 'ready' | 'error'; detail?: string }>({
-    state: 'loading',
-  });
+  const [status, setStatus] = useState<Status>({ state: 'loading' });
 
   // Create the avatar once.
   useEffect(() => {
@@ -183,7 +209,8 @@ export function TalkingHeadAvatar({ avatar, audioTrack, agentState, mood, silenc
       try {
         const probe = await fetch(avatar.url, { method: 'HEAD' });
         if (!probe.ok) {
-          throw new Error(`Avatar model not found at ${avatar.url}. Run "npm run fetch-avatar" first.`);
+          if (!disposed) setStatus({ state: 'missing', help: missingAvatarHelp(avatar.url, gender) });
+          return;
         }
         const { TalkingHead } = await import('@met4citizen/talkinghead');
         if (disposed) return;
@@ -238,7 +265,7 @@ export function TalkingHeadAvatar({ avatar, audioTrack, agentState, mood, silenc
       }
       node.replaceChildren();
     };
-  }, [avatar.url, avatar.body, avatar.view, avatar.cameraY, avatar.cameraDistance]);
+  }, [avatar.url, avatar.body, avatar.view, avatar.cameraY, avatar.cameraDistance, gender]);
 
   // Follow the agent's audio track for lip-sync.
   useEffect(() => {
@@ -287,18 +314,45 @@ export function TalkingHeadAvatar({ avatar, audioTrack, agentState, mood, silenc
   return (
     <div className={`relative ${className ?? ''}`}>
       <div ref={nodeRef} className="absolute inset-0" />
-      {status.state === 'loading' && (
-        <div className="absolute inset-0 grid place-items-center text-sm text-muted">Loading avatar…</div>
-      )}
+      {status.state === 'loading' && <SpinnerOverlay label={loadingLabel} />}
+      {status.state === 'ready' && busy && busyLabel && <SpinnerOverlay label={busyLabel} dim />}
       {status.state === 'error' && (
         <div className="absolute inset-0 grid place-items-center p-6 text-center text-sm text-muted">
           <p>
-            Avatar unavailable.
+            {strings.avatarUnavailable}
             <br />
             <span className="text-xs">{status.detail}</span>
           </p>
         </div>
       )}
+      {status.state === 'missing' && <MissingAvatar help={status.help} strings={strings} />}
+    </div>
+  );
+}
+
+/** Explains how to install a missing avatar model. */
+function MissingAvatar({ help, strings }: { help: MissingAvatarHelp; strings: Strings }) {
+  return (
+    <div role="alert" className="absolute inset-0 overflow-y-auto p-5 text-sm">
+      <div className="mx-auto flex max-w-md flex-col gap-2 text-muted">
+        <p className="font-semibold text-fg">
+          {help.gender === 'male' ? strings.avatarMissingMale : strings.avatarMissingFemale}
+        </p>
+        {help.command ? (
+          <>
+            <p>{strings.avatarMissingRun}</p>
+            <code className="select-all rounded-md border border-border bg-bg px-3 py-2 font-mono text-xs text-fg">
+              {help.command}
+            </code>
+            <p>{strings.avatarMissingReload}</p>
+            <p className="text-xs">{strings.avatarMissingDocker}</p>
+            {help.nonCommercial && <p className="text-xs">{strings.avatarMissingLicense}</p>}
+          </>
+        ) : (
+          <p>{strings.avatarMissingCustom.replace('{url}', help.url).replace('{envVar}', help.envVar)}</p>
+        )}
+        <p className="text-xs">{strings.avatarMissingFallback}</p>
+      </div>
     </div>
   );
 }

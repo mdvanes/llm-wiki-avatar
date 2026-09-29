@@ -12,13 +12,15 @@ import { useConversationRecorder } from '@/hooks/useConversationRecorder';
 import { useWikiStreams } from '@/hooks/useWikiStreams';
 import { type Conversation, mergeEntries, restorePayload } from '@/lib/history';
 import type { Language, Strings } from '@/lib/language';
+import { type Presentation, avatarOf, voiceOf } from '@/lib/presentation';
 import { stopTarget, withFullReplies } from '@/lib/reply';
-import type { AvatarConfig } from '@/lib/server-config';
+import type { AvatarSettings } from '@/lib/server-config';
 import {
   type InputMode,
   RPC_RESTORE_HISTORY,
   RPC_SET_INPUT_MODE,
   RPC_SET_LANGUAGE,
+  RPC_SET_VOICE,
   RPC_STOP_SPEAKING,
   SPEECH_STATE_ATTRIBUTE,
   toSpeechState,
@@ -31,17 +33,21 @@ import { LanguageSelector } from './LanguageSelector';
 import { ShowHistoryButton } from './HistorySidebar';
 import { MicButton } from './MicButton';
 import { PageViewer, type PageRef } from './PageViewer';
+import { PresentationSelector } from './PresentationSelector';
+import { SpinnerOverlay } from './Spinner';
 import { SourceChips } from './SourceChips';
 import { TalkingHeadAvatar } from './TalkingHeadAvatar';
 import { Transcript, toTranscriptEntry } from './Transcript';
 
 interface Props {
-  avatar: AvatarConfig;
+  avatar: AvatarSettings;
   strings: Strings;
   language: Language;
   onLanguageChange: (language: Language) => void;
   inputMode: InputMode;
   onInputModeChange: (mode: InputMode) => void;
+  presentation: Presentation;
+  onPresentationChange: (presentation: Presentation) => void;
   /** An earlier conversation that this session continues. */
   previous?: Conversation;
   /** Id under which this session is saved in the history. */
@@ -81,6 +87,9 @@ function useRestoreHistory(previous: Conversation | undefined, agentIdentity: st
   }, [previous, agentIdentity, localParticipant]);
 }
 
+/** Shortest time the "switching voice" spinner is shown. */
+const MIN_SWITCH_MS = 700;
+
 /** Audio still buffered in the browser after the agent stops; kept silent until it has drained. */
 const SILENCE_TAIL_MS = 500;
 
@@ -105,6 +114,8 @@ export function SessionView({
   onLanguageChange,
   inputMode,
   onInputModeChange,
+  presentation,
+  onPresentationChange,
   previous,
   conversationId,
   onSave,
@@ -118,6 +129,10 @@ export function SessionView({
   const [page, setPage] = useState<PageRef | null>(null);
   const [draft, setDraft] = useState('');
   const [switching, setSwitching] = useState(false);
+  /** The voice is being switched on the agent. */
+  const [switchingVoice, setSwitchingVoice] = useState(false);
+  /** Set after the first switch, so a newly loading avatar says "switching" rather than "loading". */
+  const [switched, setSwitched] = useState(false);
   /** Set when the user stopped the voice, until the agent has stopped speaking. */
   const [silenced, setSilenced] = useState(false);
 
@@ -204,6 +219,35 @@ export function SessionView({
     }
   };
 
+  const voice = voiceOf(presentation);
+  const gender = avatarOf(presentation);
+
+  const changePresentation = async (next: Presentation) => {
+    if (next === presentation) return;
+    const previous = presentation;
+    onPresentationChange(next);
+    setSwitched(true);
+    if (voiceOf(next) === voiceOf(previous) || !agent.identity) return;
+    setSwitchingVoice(true);
+    const started = Date.now();
+    try {
+      // Stop the current reply rather than switching voices halfway; its text still arrives in full.
+      if (speaking && !silenced) await stopSpeaking();
+      await localParticipant.performRpc({
+        destinationIdentity: agent.identity,
+        method: RPC_SET_VOICE,
+        payload: voiceOf(next),
+      });
+    } catch (err) {
+      console.error('set_voice failed', err);
+      onPresentationChange(previous);
+    } finally {
+      // Keep the spinner up long enough to be seen rather than flash.
+      await new Promise((r) => setTimeout(r, Math.max(0, MIN_SWITCH_MS - (Date.now() - started))));
+      setSwitchingVoice(false);
+    }
+  };
+
   // Mute what the browser still has buffered, and unmute once the agent is done.
   useEffect(() => {
     if (!(agentAudioTrack instanceof RemoteAudioTrack)) return;
@@ -216,11 +260,16 @@ export function SessionView({
     agentAudioTrack.setVolume(1);
   }, [silenced, speaking, agentAudioTrack]);
 
+  // Without a voice the agent "speaks" by writing its reply.
+  const shownStrings = useMemo(
+    () => (voice === 'off' ? { ...strings, speaking: strings.answering } : strings),
+    [voice, strings],
+  );
   const speechState = toSpeechState(agent.attributes?.[SPEECH_STATE_ATTRIBUTE]);
   const phase = useSettledPhase(conversationPhase(agent.state, speechState));
   const busy = phase === 'hearing' || phase === 'transcribing' || phase === 'thinking';
   const agentAudio = agentAudioTrack?.mediaStreamTrack;
-  const showStop = speaking && !silenced;
+  const showStop = speaking && !silenced && voice !== 'off';
   const newestFirst = [...allAnswers].reverse();
 
   return (
@@ -229,7 +278,7 @@ export function SessionView({
         <div className="flex min-w-0 items-center gap-3">
           {onShowHistory && <ShowHistoryButton onClick={onShowHistory} label={strings.showHistory} />}
           <span className="font-semibold">📚 LLM Wiki</span>
-          <ConversationStatus phase={phase} strings={strings} />
+          <ConversationStatus phase={phase} strings={shownStrings} />
           {previous && (
             <span className="hidden truncate text-xs text-muted xl:inline" title={previous.title}>
               ↩ {strings.continuing}
@@ -241,6 +290,12 @@ export function SessionView({
             value={inputMode}
             onChange={changeInputMode}
             disabled={!agent.isConnected}
+            strings={strings}
+          />
+          <PresentationSelector
+            value={presentation}
+            onChange={(next) => void changePresentation(next)}
+            disabled={switchingVoice || !agent.isConnected}
             strings={strings}
           />
           <LanguageSelector
@@ -269,17 +324,32 @@ export function SessionView({
         <section className="flex min-h-0 flex-col gap-4">
           <div className="flex shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-panel">
             <div className="relative">
-              <TalkingHeadAvatar
-                avatar={avatar}
-                className="h-[50vh] min-h-[240px]"
-                audioTrack={agentAudio}
-                agentState={agent.state}
-                mood={mood}
-                silenced={silenced}
-              />
-              {busy && (
+              {gender ? (
+                <TalkingHeadAvatar
+                  key={gender}
+                  avatar={{ ...avatar, ...avatar.models[gender] }}
+                  gender={gender}
+                  strings={strings}
+                  loadingLabel={switched ? strings.switchingVoice : strings.loadingAvatar}
+                  busy={switchingVoice}
+                  busyLabel={strings.switchingVoice}
+                  className="h-[50vh] min-h-[240px]"
+                  audioTrack={agentAudio}
+                  agentState={agent.state}
+                  mood={mood}
+                  silenced={silenced}
+                />
+              ) : (
+                <VoicePanel
+                  label={voice === 'off' ? strings.textOnly : strings.voiceOnly}
+                  icon={voice === 'off' ? '💬' : '🔊'}
+                  active={speaking && !silenced}
+                  switchingLabel={switchingVoice ? strings.switchingVoice : undefined}
+                />
+              )}
+              {busy && !switchingVoice && (
                 <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
-                  <ConversationStatus phase={phase} strings={strings} variant="banner" />
+                  <ConversationStatus phase={phase} strings={shownStrings} variant="banner" />
                 </div>
               )}
             </div>
@@ -352,6 +422,34 @@ export function SessionView({
       {page && (
         <PageViewer page={page} closeLabel={strings.close} onClose={() => setPage(null)} onNavigate={setPage} />
       )}
+    </div>
+  );
+}
+
+/** Takes the avatar's place when there is no avatar: a compact panel that shows the mode and what the agent does. */
+function VoicePanel({
+  label,
+  icon,
+  active,
+  switchingLabel,
+}: {
+  label: string;
+  icon: string;
+  active: boolean;
+  switchingLabel?: string;
+}) {
+  return (
+    <div className="relative flex h-48 flex-col items-center justify-center gap-3 pb-10">
+      <span
+        className={`grid size-14 place-items-center rounded-full bg-panel-2 text-2xl transition-shadow ${
+          active ? 'animate-pulse ring-2 ring-accent' : 'ring-1 ring-border'
+        }`}
+        aria-hidden
+      >
+        {icon}
+      </span>
+      <span className="text-xs text-muted">{label}</span>
+      {switchingLabel && <SpinnerOverlay label={switchingLabel} dim />}
     </div>
   );
 }

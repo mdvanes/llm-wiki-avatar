@@ -2,7 +2,7 @@ import { type FlushSentinel, llm, log, stt, voice } from '@livekit/agents';
 import type * as openai from '@livekit/agents-plugin-openai';
 import type { AudioFrame } from '@livekit/rtc-node';
 import { ReadableStream, TransformStream } from 'node:stream/web';
-import type { Config, Language } from './config.ts';
+import type { Config, Language, Voice } from './config.ts';
 import { type HistoryTurn, withRestoredHistory } from './history.ts';
 import type { SttTap } from './inputMode.ts';
 import type { LanguageProfile } from './language.ts';
@@ -36,6 +36,15 @@ export interface WikiAgentOptions {
   corrector?: VocabularyCorrector;
   /** Lets push-to-talk flush STT on release and follow its progress. */
   sttTap?: SttTap;
+  /** Initial voice; `off` makes replies text only. Defaults to `female`. */
+  voice?: Voice;
+  /** The session's audio output; turned off for the `off` voice. */
+  audioOutput?: AudioOutputSwitch;
+}
+
+/** The part of the session output that turns speech on and off (`session.output`). */
+export interface AudioOutputSwitch {
+  setAudioEnabled(enabled: boolean): void;
 }
 
 /** Inline code spans or fenced blocks, as the model writes identifiers and commands. */
@@ -67,6 +76,7 @@ export class WikiAgent extends voice.Agent {
   readonly #opts: WikiAgentOptions;
   readonly #sources: SourceTracker;
   #language: Language;
+  #voice: Voice;
   #lastUserMessageId: string | undefined;
   /** Text of the reply currently being generated or spoken. */
   #reply: ReplyCapture | undefined;
@@ -80,7 +90,8 @@ export class WikiAgent extends voice.Agent {
     this.#opts = opts;
     this.#sources = sources;
     this.#language = opts.language;
-    this.#applySpeechSettings(opts.language);
+    this.#voice = opts.voice ?? 'female';
+    this.#applySpeechSettings();
   }
 
   static instructionsFor(opts: Pick<WikiAgentOptions, 'wiki' | 'cfg' | 'profiles'>, language: Language): string {
@@ -94,6 +105,10 @@ export class WikiAgent extends voice.Agent {
     return this.#language;
   }
 
+  get voice(): Voice {
+    return this.#voice;
+  }
+
   get profile(): LanguageProfile {
     return this.#opts.profiles[this.#language];
   }
@@ -102,13 +117,23 @@ export class WikiAgent extends voice.Agent {
   async setLanguage(language: Language, { announce = true } = {}): Promise<void> {
     if (language === this.#language) return;
     this.#language = language;
-    this.#applySpeechSettings(language);
+    this.#applySpeechSettings();
     await this.updateInstructions(WikiAgent.instructionsFor(this.#opts, language));
     this.#opts.publisher.language(language);
     if (announce) {
       this.session.interrupt();
       this.say(`[mood:happy] ${this.profile.switched}`);
     }
+  }
+
+  /**
+   * Switches the voice gender, or turns speech off (`off`: replies are text only; STT keeps working).
+   * Takes effect from the next reply; the caller stops a reply that is being spoken.
+   */
+  setVoice(voice: Voice): void {
+    if (voice === this.#voice) return;
+    this.#voice = voice;
+    this.#applySpeechSettings();
   }
 
   /** Speaks a fixed text; use instead of `session.say` so the text can be shown in full when stopped. */
@@ -166,10 +191,12 @@ export class WikiAgent extends voice.Agent {
     await this.updateInstructions(WikiAgent.instructionsFor(this.#opts, this.#language));
   }
 
-  #applySpeechSettings(language: Language): void {
-    const profile = this.#opts.profiles[language];
+  #applySpeechSettings(): void {
+    const profile = this.#opts.profiles[this.#language];
     this.#opts.stt?.updateOptions({ language: profile.whisperLanguage, prompt: this.#opts.sttPrompt });
-    this.#opts.tts?.updateOptions(profile.tts);
+    this.#opts.audioOutput?.setAudioEnabled(this.#voice !== 'off');
+    // Keep the TTS on a real voice even when off, so turning speech back on needs no extra step.
+    this.#opts.tts?.updateOptions(profile.voices[this.#voice === 'off' ? 'female' : this.#voice]);
   }
 
   /**

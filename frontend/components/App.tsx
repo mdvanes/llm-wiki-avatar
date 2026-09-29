@@ -5,8 +5,9 @@ import { TokenSource } from 'livekit-client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type Conversation, clearHistory, deleteConversation, loadHistory, saveConversation } from '@/lib/history';
 import { type Language, STRINGS, loadInputMode, loadLanguage, saveInputMode, saveLanguage } from '@/lib/language';
-import type { AvatarConfig } from '@/lib/server-config';
-import { INPUT_MODE_ATTRIBUTE, type InputMode, LANGUAGE_ATTRIBUTE } from '@/lib/protocol';
+import { type Presentation, loadPresentation, savePresentation, voiceOf } from '@/lib/presentation';
+import type { AvatarSettings } from '@/lib/server-config';
+import { INPUT_MODE_ATTRIBUTE, type InputMode, LANGUAGE_ATTRIBUTE, VOICE_ATTRIBUTE } from '@/lib/protocol';
 import { ConversationViewer } from './ConversationViewer';
 import { HistorySidebar } from './HistorySidebar';
 import { SessionView } from './SessionView';
@@ -15,9 +16,10 @@ import { WelcomeView } from './WelcomeView';
 const tokenSource = TokenSource.endpoint('/api/token');
 const SIDEBAR_KEY = 'llm-wiki-avatar.historySidebar';
 
-export function App({ avatar }: { avatar: AvatarConfig }) {
+export function App({ avatar }: { avatar: AvatarSettings }) {
   const [language, setLanguage] = useState<Language>('en');
   const [inputMode, setInputMode] = useState<InputMode>('always');
+  const [presentation, setPresentation] = useState<Presentation>(avatar.defaultPresentation);
   const [error, setError] = useState<string>();
   const [starting, setStarting] = useState(false);
   const [history, setHistory] = useState<Conversation[]>([]);
@@ -29,10 +31,11 @@ export function App({ avatar }: { avatar: AvatarConfig }) {
   useEffect(() => {
     setLanguage(loadLanguage());
     setInputMode(loadInputMode());
+    setPresentation(loadPresentation(avatar.defaultPresentation));
     setHistory(loadHistory());
     const stored = window.localStorage.getItem(SIDEBAR_KEY);
     setSidebarOpen(stored ? stored === 'open' : window.innerWidth >= 768);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleSidebar = useCallback((open: boolean) => {
     setSidebarOpen(open);
@@ -54,15 +57,22 @@ export function App({ avatar }: { avatar: AvatarConfig }) {
     saveInputMode(next);
   }, []);
 
-  // The token route puts these on the participant, so the agent starts in the right language and mic mode.
+  const changePresentation = useCallback((next: Presentation) => {
+    setPresentation(next);
+    savePresentation(next);
+  }, []);
+
+  // The token route puts these on the participant, so the agent starts in the right language, mic mode and voice.
+  const voice = voiceOf(presentation);
   const options = useMemo(
     () => ({
       participantAttributes: {
         [LANGUAGE_ATTRIBUTE]: language,
         [INPUT_MODE_ATTRIBUTE]: inputMode,
+        [VOICE_ATTRIBUTE]: voice,
       },
     }),
-    [language, inputMode],
+    [language, inputMode, voice],
   );
   const session = useSession(tokenSource, options);
   const strings = STRINGS[language];
@@ -117,6 +127,8 @@ export function App({ avatar }: { avatar: AvatarConfig }) {
               onLanguageChange={changeLanguage}
               inputMode={inputMode}
               onInputModeChange={changeInputMode}
+              presentation={presentation}
+              onPresentationChange={changePresentation}
               previous={continuing}
               conversationId={conversationId}
               onSave={save}
@@ -129,6 +141,8 @@ export function App({ avatar }: { avatar: AvatarConfig }) {
               onLanguageChange={changeLanguage}
               inputMode={inputMode}
               onInputModeChange={changeInputMode}
+              presentation={presentation}
+              onPresentationChange={changePresentation}
               onStart={() => void start()}
               connecting={connecting}
               error={error}

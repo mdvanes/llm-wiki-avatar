@@ -1,10 +1,12 @@
 'use client';
 
 import type { Language, Strings } from '@/lib/language';
+import type { Presentation } from '@/lib/presentation';
 import type { InputMode } from '@/lib/protocol';
 import { ShowHistoryButton } from './HistorySidebar';
 import { InputModeSelector } from './InputModeSelector';
 import { LanguageSelector } from './LanguageSelector';
+import { PresentationSelector } from './PresentationSelector';
 
 interface Props {
   strings: Strings;
@@ -12,6 +14,8 @@ interface Props {
   onLanguageChange: (language: Language) => void;
   inputMode: InputMode;
   onInputModeChange: (mode: InputMode) => void;
+  presentation: Presentation;
+  onPresentationChange: (presentation: Presentation) => void;
   onStart: () => void;
   connecting: boolean;
   error?: string;
@@ -25,6 +29,8 @@ export function WelcomeView({
   onLanguageChange,
   inputMode,
   onInputModeChange,
+  presentation,
+  onPresentationChange,
   onStart,
   connecting,
   error,
@@ -48,6 +54,12 @@ export function WelcomeView({
         <div className="flex flex-wrap items-center justify-center gap-3">
           <LanguageSelector value={language} onChange={onLanguageChange} label={strings.language} disabled={connecting} />
           <InputModeSelector value={inputMode} onChange={onInputModeChange} strings={strings} disabled={connecting} />
+          <PresentationSelector
+            value={presentation}
+            onChange={onPresentationChange}
+            strings={strings}
+            disabled={connecting}
+          />
         </div>
         <button
           type="button"

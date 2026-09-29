@@ -83,7 +83,7 @@ describe('WikiAgent.setLanguage', () => {
     const wiki = await Wiki.open(SAMPLE_WIKI);
     const profiles = languageProfiles(cfg);
     const stt = new openai.STT({ baseURL, apiKey: 'x', model: 'whisper', useRealtime: false, language: 'en' });
-    const tts = new SpeachesTTS(profiles.en.tts);
+    const tts = new SpeachesTTS(profiles.en.voices.female);
     const sttUpdate = vi.spyOn(stt, 'updateOptions');
     const publisher = new RecordingPublisher();
     const agent = new WikiAgent({ wiki, cfg, publisher, profiles, language: 'en', stt, tts, sttPrompt: 'Glossary: X.' });
@@ -92,12 +92,59 @@ describe('WikiAgent.setLanguage', () => {
     await agent.setLanguage('nl', { announce: false });
     expect(agent.language).toBe('nl');
     expect(sttUpdate).toHaveBeenLastCalledWith({ language: 'nl', prompt: 'Glossary: X.' });
-    expect(tts.model).toBe(profiles.nl.tts.model);
-    expect(tts.voice).toMatchObject({ model: profiles.nl.tts.model, voice: 'mls' });
+    expect(tts.model).toBe(profiles.nl.voices.female.model);
+    expect(tts.voice).toMatchObject({ model: profiles.nl.voices.female.model, voice: 'mls' });
     expect(agent.instructions).toContain('Always reply in Dutch');
     expect(publisher.events).toEqual([{ topic: TOPICS.language, payload: 'nl' }]);
 
     await agent.setLanguage('nl', { announce: false });
     expect(publisher.events).toHaveLength(1);
+  });
+});
+
+describe('WikiAgent.setVoice', () => {
+  async function setup(voice?: 'off' | 'female' | 'male') {
+    const cfg = loadConfig({ WIKI_DIR: SAMPLE_WIKI, SPEACHES_URL: baseURL });
+    const wiki = await Wiki.open(SAMPLE_WIKI);
+    const profiles = languageProfiles(cfg);
+    const tts = new SpeachesTTS(profiles.en.voices.female);
+    const audio = {
+      enabled: true,
+      setAudioEnabled(enabled: boolean) {
+        this.enabled = enabled;
+      },
+    };
+    const publisher = new RecordingPublisher();
+    const agent = new WikiAgent({ wiki, cfg, publisher, profiles, language: 'en', tts, audioOutput: audio, voice });
+    return { agent, tts, audio };
+  }
+
+  it('starts with the requested voice', async () => {
+    const { agent, tts, audio } = await setup('male');
+    expect(agent.voice).toBe('male');
+    expect(tts.voice.voice).toBe('am_michael');
+    expect(audio.enabled).toBe(true);
+    expect((await setup()).agent.voice).toBe('female');
+  });
+
+  it('turns speech off and back on', async () => {
+    const { agent, tts, audio } = await setup();
+    agent.setVoice('off');
+    expect(agent.voice).toBe('off');
+    expect(audio.enabled).toBe(false);
+    agent.setVoice('male');
+    expect(audio.enabled).toBe(true);
+    expect(tts.voice.voice).toBe('am_michael');
+    agent.setVoice('female');
+    expect(tts.voice.voice).toBe('af_heart');
+  });
+
+  it('keeps the gender when the language changes', async () => {
+    const { agent, tts, audio } = await setup('male');
+    await agent.setLanguage('nl', { announce: false });
+    expect(tts.voice).toMatchObject({ model: 'speaches-ai/piper-nl_BE-rdh-medium', voice: 'rdh' });
+    agent.setVoice('off');
+    await agent.setLanguage('en', { announce: false });
+    expect(audio.enabled).toBe(false);
   });
 });

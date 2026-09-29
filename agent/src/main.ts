@@ -2,7 +2,7 @@ import { type JobContext, ServerOptions, cli, defineAgent, inference, log, voice
 import * as openai from '@livekit/agents-plugin-openai';
 import type { ReadableStream } from 'node:stream/web';
 import { fileURLToPath } from 'node:url';
-import { type Config, type Language, isLanguage, loadConfig } from './config.ts';
+import { type Config, type Language, type Voice, isLanguage, isVoice, loadConfig } from './config.ts';
 import { parseHistoryPayload } from './history.ts';
 import { InputModeController, SttTap, isInputMode } from './inputMode.ts';
 import { languageProfiles } from './language.ts';
@@ -14,6 +14,7 @@ import {
   RPC_RESTORE_HISTORY,
   RPC_SET_INPUT_MODE,
   RPC_SET_LANGUAGE,
+  RPC_SET_VOICE,
   RPC_STOP_SPEAKING,
   RoomPublisher,
 } from './publisher.ts';
@@ -28,6 +29,8 @@ import { Wiki } from './wiki/wiki.ts';
 export const LANGUAGE_ATTRIBUTE = 'language';
 /** Participant attribute for the microphone mode: `always` or `ptt` (push-to-talk). */
 export const INPUT_MODE_ATTRIBUTE = 'input_mode';
+/** Participant attribute for the voice: `off` (text replies only), `female` or `male`. */
+export const VOICE_ATTRIBUTE = 'voice';
 /** Set on the agent participant: `hearing`, `transcribing` or `idle` (see SttTap). */
 export const SPEECH_STATE_ATTRIBUTE = 'speech_state';
 
@@ -81,24 +84,8 @@ export default defineAgent({
       language: initial.whisperLanguage,
       ...(sttPrompt ? { prompt: sttPrompt } : {}),
     });
-    const tts = new SpeachesTTS({ ...initial.tts, apiKey: cfg.SPEACHES_API_KEY, speed: cfg.TTS_SPEED });
-
-    const sttTap = new SttTap();
-    sttTap.trackRecognition(stt);
-    const publisher = new RoomPublisher(ctx.room, (err) => logger.warn({ err }, 'failed to publish to room'));
-    const agent = new WikiAgent({
-      wiki,
-      cfg,
-      publisher,
-      profiles,
-      language: cfg.DEFAULT_LANGUAGE,
-      stt,
-      tts,
-      sttPrompt,
-      corrector,
-      sttTap,
-    });
-    wiki.watch();
+    // WikiAgent switches to the configured voice.
+    const tts = new SpeachesTTS({ ...initial.voices.female, apiKey: cfg.SPEACHES_API_KEY, speed: cfg.TTS_SPEED });
 
     // Pin the local model: without a version, dev mode picks the cloud turn detector.
     const turnDetector = new inference.TurnDetector({ version: 'v1-mini' });
@@ -120,6 +107,25 @@ export default defineAgent({
         ttsConnOptions: { timeoutMs: cfg.SPEECH_TIMEOUT_S * 1000 },
       },
     });
+
+    const sttTap = new SttTap();
+    sttTap.trackRecognition(stt);
+    const publisher = new RoomPublisher(ctx.room, (err) => logger.warn({ err }, 'failed to publish to room'));
+    const agent = new WikiAgent({
+      wiki,
+      cfg,
+      publisher,
+      profiles,
+      language: cfg.DEFAULT_LANGUAGE,
+      stt,
+      tts,
+      sttPrompt,
+      corrector,
+      sttTap,
+      voice: cfg.DEFAULT_VOICE,
+      audioOutput: session.output,
+    });
+    wiki.watch();
 
     await session.start({ agent, room: ctx.room });
     await ctx.connect();
@@ -143,6 +149,14 @@ export default defineAgent({
       agent.stopSpeaking(payload.trim());
       logger.info('speech stopped by the user');
       return 'ok';
+    });
+
+    ctx.room.localParticipant?.registerRpcMethod(RPC_SET_VOICE, async ({ payload }) => {
+      const requested = payload.trim().toLowerCase();
+      if (!isVoice(requested)) throw new Error(`unsupported voice "${payload}"`);
+      agent.setVoice(requested);
+      logger.info({ voice: requested }, 'voice changed');
+      return requested;
     });
 
     let publishedSpeechState = '';
@@ -187,11 +201,14 @@ export default defineAgent({
     const participant = await ctx.waitForParticipant();
     const requestedMode = participant.attributes[INPUT_MODE_ATTRIBUTE]?.toLowerCase();
     if (isInputMode(requestedMode)) inputMode.setMode(requestedMode);
+    const requestedVoice = participant.attributes[VOICE_ATTRIBUTE]?.toLowerCase();
+    const initialVoice: Voice = isVoice(requestedVoice) ? requestedVoice : cfg.DEFAULT_VOICE;
+    agent.setVoice(initialVoice);
     const requested = participant.attributes[LANGUAGE_ATTRIBUTE]?.toLowerCase();
     const language: Language = isLanguage(requested) ? requested : cfg.DEFAULT_LANGUAGE;
     await agent.setLanguage(language, { announce: false });
     publisher.language(language);
-    logger.info({ language, inputMode: inputMode.mode, participant: participant.identity }, 'session started');
+    logger.info({ language, voice: initialVoice, inputMode: inputMode.mode, participant: participant.identity }, 'session started');
 
     agent.say(`[mood:happy] ${profiles[language].greeting}`);
   },

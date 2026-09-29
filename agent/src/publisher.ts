@@ -15,6 +15,8 @@ export const REPLY_TARGET_ATTRIBUTE = 'target';
 
 export const RPC_SET_LANGUAGE = 'set_language';
 export const RPC_SET_INPUT_MODE = 'set_input_mode';
+/** Payload: `off`, `female` or `male`. */
+export const RPC_SET_VOICE = 'set_voice';
 export const RPC_PTT_START = 'ptt_start';
 export const RPC_PTT_END = 'ptt_end';
 export const RPC_PTT_CANCEL = 'ptt_cancel';

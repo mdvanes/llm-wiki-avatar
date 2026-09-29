@@ -1,6 +1,6 @@
 import { initializeLogger, type llm, voice } from '@livekit/agents';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { loadConfig } from '../src/config.ts';
+import { isVoice, loadConfig } from '../src/config.ts';
 import { languageProfiles } from '../src/language.ts';
 import { buildInstructions, buildWikiContext, wikiOverview } from '../src/prompts.ts';
 import { RecordingPublisher, TOPICS } from '../src/publisher.ts';
@@ -36,13 +36,38 @@ describe('config and language profiles', () => {
 
   it('routes Dutch to the Piper voice and English to Kokoro', () => {
     const profiles = languageProfiles(loadConfig({ TTS_NL_BASE_URL: 'http://piper:8000/v1' }));
-    expect(profiles.en.tts).toMatchObject({ model: expect.stringContaining('Kokoro'), voice: 'af_heart' });
-    expect(profiles.nl.tts).toEqual({
+    expect(profiles.en.voices.female).toMatchObject({ model: expect.stringContaining('Kokoro'), voice: 'af_heart' });
+    expect(profiles.nl.voices.female).toEqual({
       baseURL: 'http://piper:8000/v1',
       model: 'speaches-ai/piper-nl_NL-mls-medium',
       voice: 'mls',
     });
     expect(profiles.nl.whisperLanguage).toBe('nl');
+  });
+
+  it('has male voices per language, with their own server override', () => {
+    const profiles = languageProfiles(
+      loadConfig({ SPEACHES_URL: 'http://speaches/v1', TTS_EN_MALE_BASE_URL: 'http://kokoro/v1' }),
+    );
+    expect(profiles.en.voices.male).toEqual({
+      baseURL: 'http://kokoro/v1',
+      model: 'speaches-ai/Kokoro-82M-v1.0-ONNX',
+      voice: 'am_michael',
+    });
+    expect(profiles.nl.voices.male).toEqual({
+      baseURL: 'http://speaches/v1',
+      model: 'speaches-ai/piper-nl_BE-rdh-medium',
+      voice: 'rdh',
+    });
+  });
+
+  it('parses the default voice', () => {
+    expect(loadConfig({}).DEFAULT_VOICE).toBe('female');
+    expect(loadConfig({ DEFAULT_VOICE: 'off' }).DEFAULT_VOICE).toBe('off');
+    expect(() => loadConfig({ DEFAULT_VOICE: 'robot' })).toThrow();
+    expect(isVoice('male')).toBe(true);
+    expect(isVoice('Male')).toBe(false);
+    expect(isVoice(undefined)).toBe(false);
   });
 });
 
