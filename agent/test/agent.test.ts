@@ -39,8 +39,8 @@ describe('config and language profiles', () => {
     expect(profiles.en.voices.female).toMatchObject({ model: expect.stringContaining('Kokoro'), voice: 'af_heart' });
     expect(profiles.nl.voices.female).toEqual({
       baseURL: 'http://piper:8000/v1',
-      model: 'speaches-ai/piper-nl_NL-mls-medium',
-      voice: 'mls',
+      model: 'speaches-ai/piper-nl_BE-nathalie-medium',
+      voice: 'nathalie',
     });
     expect(profiles.nl.whisperLanguage).toBe('nl');
   });

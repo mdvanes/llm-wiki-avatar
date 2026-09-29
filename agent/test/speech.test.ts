@@ -93,7 +93,7 @@ describe('WikiAgent.setLanguage', () => {
     expect(agent.language).toBe('nl');
     expect(sttUpdate).toHaveBeenLastCalledWith({ language: 'nl', prompt: 'Glossary: X.' });
     expect(tts.model).toBe(profiles.nl.voices.female.model);
-    expect(tts.voice).toMatchObject({ model: profiles.nl.voices.female.model, voice: 'mls' });
+    expect(tts.voice).toMatchObject({ model: profiles.nl.voices.female.model, voice: 'nathalie' });
     expect(agent.instructions).toContain('Always reply in Dutch');
     expect(publisher.events).toEqual([{ topic: TOPICS.language, payload: 'nl' }]);
 

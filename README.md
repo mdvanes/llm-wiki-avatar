@@ -149,7 +149,7 @@ because Turbopack cannot bundle TalkingHead's dynamic imports.
 | `LLM_REASONING_EFFORT` | unset | Set to `none` for reasoning models such as `qwen3.5` for a much faster first word. |
 | `STT_MODEL` | `Systran/faster-whisper-small` | Use `Systran/faster-whisper-medium` for noticeably better Dutch, at the cost of speed. |
 | `TTS_EN_VOICE` | `af_heart` | Female English voice: any [Kokoro voice](https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md). |
-| `TTS_NL_MODEL` / `TTS_NL_VOICE` | `speaches-ai/piper-nl_NL-mls-medium` / `mls` | Female Dutch voice. Other Dutch Piper voices: `nl_BE-nathalie-*`, `nl_NL-mls_5809-low`, … |
+| `TTS_NL_MODEL` / `TTS_NL_VOICE` | `speaches-ai/piper-nl_BE-nathalie-medium` / `nathalie` | Female Dutch voice. Other Dutch Piper voices: `nl_NL-mls-medium`, `nl_NL-mls_5809-low`, … |
 | `TTS_EN_MALE_VOICE` | `am_michael` | Male English voice (`TTS_EN_MALE_MODEL` defaults to Kokoro). |
 | `TTS_NL_MALE_MODEL` / `TTS_NL_MALE_VOICE` | `speaches-ai/piper-nl_BE-rdh-medium` / `rdh` | Male Dutch voice (Flemish). |
 | `TTS_*_BASE_URL` | `SPEACHES_URL` | Send one language (and gender, `TTS_*_MALE_BASE_URL`) to a different OpenAI-compatible TTS server. |

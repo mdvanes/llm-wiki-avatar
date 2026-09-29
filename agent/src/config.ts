@@ -57,8 +57,8 @@ const schema = z.object({
   TTS_EN_MODEL: z.string().default('speaches-ai/Kokoro-82M-v1.0-ONNX'),
   TTS_EN_VOICE: z.string().default('af_heart'),
   TTS_NL_BASE_URL: z.string().optional(),
-  TTS_NL_MODEL: z.string().default('speaches-ai/piper-nl_NL-mls-medium'),
-  TTS_NL_VOICE: z.string().default('mls'),
+  TTS_NL_MODEL: z.string().default('speaches-ai/piper-nl_BE-nathalie-medium'),
+  TTS_NL_VOICE: z.string().default('nathalie'),
   // The TTS_EN_* / TTS_NL_* settings above are the female voices; these are the male ones.
   TTS_EN_MALE_BASE_URL: z.string().optional(),
   TTS_EN_MALE_MODEL: z.string().default('speaches-ai/Kokoro-82M-v1.0-ONNX'),
