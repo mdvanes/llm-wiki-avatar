@@ -25,6 +25,8 @@ import { Wiki } from './wiki/wiki.ts';
 export const LANGUAGE_ATTRIBUTE = 'language';
 /** Participant attribute for the microphone mode: `always` or `ptt` (push-to-talk). */
 export const INPUT_MODE_ATTRIBUTE = 'input_mode';
+/** Set on the agent participant: `hearing`, `transcribing` or `idle` (see SttTap). */
+export const SPEECH_STATE_ATTRIBUTE = 'speech_state';
 
 /** TTS input transforms: drop the mood tag and code, then the built-in markdown/emoji cleanup. */
 export function ttsTextTransforms(): voice.AgentSessionOptions['ttsTextTransforms'] {
@@ -79,6 +81,7 @@ export default defineAgent({
     const tts = new SpeachesTTS({ ...initial.tts, apiKey: cfg.SPEACHES_API_KEY, speed: cfg.TTS_SPEED });
 
     const sttTap = new SttTap();
+    sttTap.trackRecognition(stt);
     const publisher = new RoomPublisher(ctx.room, (err) => logger.warn({ err }, 'failed to publish to room'));
     const agent = new WikiAgent({
       wiki,
@@ -125,6 +128,19 @@ export default defineAgent({
       await agent.setLanguage(language);
       return language;
     });
+
+    let publishedSpeechState = '';
+    const publishSpeechState = () => {
+      const state = sttTap.state;
+      const participant = ctx.room.localParticipant;
+      if (state === publishedSpeechState || !participant) return;
+      publishedSpeechState = state;
+      participant
+        .setAttributes({ [SPEECH_STATE_ATTRIBUTE]: state })
+        .catch((err: unknown) => logger.warn({ err }, 'failed to publish speech state'));
+    };
+    sttTap.onChange(publishSpeechState);
+    publishSpeechState();
 
     const inputMode = new InputModeController(session, sttTap, {
       autoTurnDetection: turnDetector,

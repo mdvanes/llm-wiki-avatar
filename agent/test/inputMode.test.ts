@@ -147,3 +147,52 @@ describe('SttTap', () => {
     vi.useRealTimers();
   });
 });
+
+describe('SttTap speech state', () => {
+  const event = (text: string) =>
+    ({ type: FINAL_TRANSCRIPT, alternatives: [{ text }] }) as unknown as stt.SpeechEvent;
+
+  it('goes idle → hearing → transcribing → idle and notifies on each change', () => {
+    const tap = new SttTap();
+    const states: string[] = [];
+    tap.onChange(() => states.push(tap.state));
+    expect(tap.state).toBe('idle');
+    tap.observe(START_OF_SPEECH);
+    tap.observe(END_OF_SPEECH);
+    tap.observe(FINAL_TRANSCRIPT);
+    expect(states).toEqual(['hearing', 'transcribing', 'idle']);
+  });
+
+  it('returns to idle when a recognition yields no text or fails', async () => {
+    const tap = new SttTap();
+    const results = [event(''), Promise.reject(new Error('boom')), event('hello')];
+    const engine = { recognize: vi.fn(async () => results.shift() as stt.SpeechEvent) };
+    tap.trackRecognition(engine);
+
+    tap.observe(START_OF_SPEECH);
+    tap.observe(END_OF_SPEECH);
+    await engine.recognize();
+    expect(tap.state).toBe('idle');
+
+    tap.observe(END_OF_SPEECH);
+    await expect(engine.recognize()).rejects.toThrow('boom');
+    expect(tap.state).toBe('idle');
+
+    // With text, the FINAL_TRANSCRIPT event ends the utterance, so endTurn can count it.
+    tap.observe(END_OF_SPEECH);
+    await engine.recognize();
+    expect(tap.state).toBe('transcribing');
+    tap.observe(FINAL_TRANSCRIPT);
+    expect(tap.state).toBe('idle');
+  });
+
+  it('reset clears the state and notifies', () => {
+    const tap = new SttTap();
+    tap.observe(START_OF_SPEECH);
+    const listener = vi.fn();
+    tap.onChange(listener);
+    tap.reset();
+    expect(tap.state).toBe('idle');
+    expect(listener).toHaveBeenCalledOnce();
+  });
+});

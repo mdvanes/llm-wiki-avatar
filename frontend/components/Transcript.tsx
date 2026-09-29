@@ -8,6 +8,8 @@ interface Props {
   messages: ReceivedMessage[];
   emptyText: string;
   thinking: boolean;
+  /** Shown as a placeholder user message while the user's speech is being heard or transcribed. */
+  pendingSpeech?: string;
   onWikiLink?: (target: string) => void;
 }
 
@@ -17,13 +19,13 @@ function isFromUser(message: ReceivedMessage): boolean {
   return message.from?.isLocal ?? false;
 }
 
-export function Transcript({ messages, emptyText, thinking, onWikiLink }: Props) {
+export function Transcript({ messages, emptyText, thinking, pendingSpeech, onWikiLink }: Props) {
   const endRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages, thinking]);
+  }, [messages, thinking, pendingSpeech]);
 
-  if (messages.length === 0) {
+  if (messages.length === 0 && !pendingSpeech) {
     return <p className="p-4 text-sm text-muted">{emptyText}</p>;
   }
   return (
@@ -42,6 +44,14 @@ export function Transcript({ messages, emptyText, thinking, onWikiLink }: Props)
           </li>
         );
       })}
+      {pendingSpeech && (
+        <li className="flex justify-end" aria-label="pending speech">
+          <div className="flex items-center gap-2 rounded-2xl rounded-br-sm border border-dashed border-accent/50 bg-accent/10 px-3.5 py-2 text-sm italic text-muted">
+            <span className="size-3 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden />
+            {pendingSpeech}
+          </div>
+        </li>
+      )}
       {thinking && (
         <li className="flex justify-start" aria-label="thinking">
           <div className="flex gap-1 rounded-2xl rounded-bl-sm bg-panel-2 px-3.5 py-3">

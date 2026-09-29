@@ -10,8 +10,16 @@ import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import { useWikiStreams } from '@/hooks/useWikiStreams';
 import type { Language, Strings } from '@/lib/language';
 import type { AvatarConfig } from '@/lib/server-config';
-import { type InputMode, RPC_SET_INPUT_MODE, RPC_SET_LANGUAGE } from '@/lib/protocol';
+import {
+  type InputMode,
+  RPC_SET_INPUT_MODE,
+  RPC_SET_LANGUAGE,
+  SPEECH_STATE_ATTRIBUTE,
+  toSpeechState,
+} from '@/lib/protocol';
+import { type Phase, TRANSCRIPT_GRACE_MS, conversationPhase, holdsPrevious } from '@/lib/status';
 import { AnswerCard } from './AnswerCard';
+import { ConversationStatus, phaseLabel } from './ConversationStatus';
 import { InputModeSelector } from './InputModeSelector';
 import { LanguageSelector } from './LanguageSelector';
 import { MicButton } from './MicButton';
@@ -27,6 +35,20 @@ interface Props {
   onLanguageChange: (language: Language) => void;
   inputMode: InputMode;
   onInputModeChange: (mode: InputMode) => void;
+}
+
+/** Smooths over the brief "listening" gap between the transcript and the agent starting to think. */
+function useSettledPhase(phase: Phase): Phase {
+  const [shown, setShown] = useState(phase);
+  useEffect(() => {
+    if (!holdsPrevious(shown, phase)) {
+      setShown(phase);
+      return;
+    }
+    const timer = setTimeout(() => setShown(phase), TRANSCRIPT_GRACE_MS);
+    return () => clearTimeout(timer);
+  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
+  return shown;
 }
 
 export function SessionView({ avatar, strings, language, onLanguageChange, inputMode, onInputModeChange }: Props) {
@@ -95,14 +117,9 @@ export function SessionView({ avatar, strings, language, onLanguageChange, input
     await send(text);
   };
 
-  const status =
-    agent.state === 'listening'
-      ? strings.listening
-      : agent.state === 'thinking'
-        ? strings.thinking
-        : agent.state === 'speaking'
-          ? strings.speaking
-          : strings.waiting;
+  const speechState = toSpeechState(agent.attributes?.[SPEECH_STATE_ATTRIBUTE]);
+  const phase = useSettledPhase(conversationPhase(agent.state, speechState));
+  const busy = phase === 'hearing' || phase === 'transcribing' || phase === 'thinking';
   const agentAudio = agent.microphoneTrack?.publication.track?.mediaStreamTrack;
   const newestFirst = [...answers].reverse();
 
@@ -111,18 +128,7 @@ export function SessionView({ avatar, strings, language, onLanguageChange, input
       <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
         <div className="flex items-center gap-3">
           <span className="font-semibold">📚 LLM Wiki</span>
-          <span
-            className={`flex items-center gap-1.5 rounded-full bg-panel-2 px-2.5 py-0.5 text-xs ${
-              agent.state === 'speaking' ? 'text-accent' : 'text-muted'
-            }`}
-          >
-            <span
-              className={`size-1.5 rounded-full ${
-                agent.state === 'listening' ? 'bg-green-400' : agent.state === 'speaking' ? 'bg-accent' : 'bg-muted'
-              } ${agent.state === 'thinking' ? 'animate-pulse' : ''}`}
-            />
-            {status}
-          </span>
+          <ConversationStatus phase={phase} strings={strings} />
         </div>
         <div className="flex items-center gap-3">
           <InputModeSelector
@@ -156,13 +162,20 @@ export function SessionView({ avatar, strings, language, onLanguageChange, input
       <main className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:overflow-hidden">
         <section className="flex min-h-0 flex-col gap-4">
           <div className="flex shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-panel">
-            <TalkingHeadAvatar
-              avatar={avatar}
-              className="h-[50vh] min-h-[240px]"
-              audioTrack={agentAudio}
-              agentState={agent.state}
-              mood={mood}
-            />
+            <div className="relative">
+              <TalkingHeadAvatar
+                avatar={avatar}
+                className="h-[50vh] min-h-[240px]"
+                audioTrack={agentAudio}
+                agentState={agent.state}
+                mood={mood}
+              />
+              {busy && (
+                <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+                  <ConversationStatus phase={phase} strings={strings} variant="banner" />
+                </div>
+              )}
+            </div>
             <form onSubmit={submit} className="flex items-center gap-2 border-t border-border p-3">
               <MicButton mode={inputMode} agentIdentity={agent.identity} strings={strings} />
               <input
@@ -180,37 +193,38 @@ export function SessionView({ avatar, strings, language, onLanguageChange, input
               </button>
             </form>
           </div>
-          <div className="flex min-h-[200px] flex-1 flex-col rounded-xl border border-border bg-panel">
+          <div className="flex min-h-[160px] flex-1 flex-col rounded-xl border border-border bg-panel">
             <h2 className="border-b border-border px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted">
-              {strings.transcript}
+              {strings.onScreen}
             </h2>
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              <Transcript
-                messages={messages}
-                emptyText={strings.empty}
-                thinking={agent.state === 'thinking'}
-                onWikiLink={(name) => setPage({ name })}
-              />
+            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+              <div>
+                <h3 className="mb-1.5 text-xs text-muted">{strings.sources}</h3>
+                {sources.length > 0 ? (
+                  <SourceChips sources={sources} onOpen={setPage} />
+                ) : (
+                  <p className="text-xs text-muted/70">{strings.noSources}</p>
+                )}
+              </div>
+              {newestFirst.map((a) => (
+                <AnswerCard key={a.id} answer={a} onOpen={setPage} />
+              ))}
             </div>
           </div>
         </section>
 
         <section className="flex min-h-[320px] flex-col rounded-xl border border-border bg-panel">
           <h2 className="border-b border-border px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted">
-            {strings.onScreen}
+            {strings.transcript}
           </h2>
-          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
-            <div>
-              <h3 className="mb-1.5 text-xs text-muted">{strings.sources}</h3>
-              {sources.length > 0 ? (
-                <SourceChips sources={sources} onOpen={setPage} />
-              ) : (
-                <p className="text-xs text-muted/70">{strings.noSources}</p>
-              )}
-            </div>
-            {newestFirst.map((a) => (
-              <AnswerCard key={a.id} answer={a} onOpen={setPage} />
-            ))}
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <Transcript
+              messages={messages}
+              emptyText={strings.empty}
+              thinking={phase === 'thinking'}
+              pendingSpeech={phase === 'hearing' || phase === 'transcribing' ? phaseLabel(phase, strings) : undefined}
+              onWikiLink={(name) => setPage({ name })}
+            />
           </div>
         </section>
       </main>

@@ -12,6 +12,15 @@ export function isInputMode(value: unknown): value is InputMode {
 
 const FRAME_MS = 20;
 
+/** Where STT is with the user's current utterance; published to the frontend as a participant attribute. */
+export const SPEECH_STATES = ['idle', 'hearing', 'transcribing'] as const;
+export type SpeechState = (typeof SPEECH_STATES)[number];
+
+/** The recognize method of a non-streaming STT; the StreamAdapter calls it once per speech segment. */
+interface Recognizer {
+  recognize(...args: never[]): Promise<stt.SpeechEvent>;
+}
+
 /**
  * Sits around the STT node: can append silence to the audio going into STT (so the VAD that segments
  * speech for Whisper closes the segment right away) and tracks where STT is in the current utterance.
@@ -27,6 +36,45 @@ export class SttTap {
   /** STT is still hearing speech, or transcribing the last segment. */
   get busy(): boolean {
     return this.#speaking || this.#pendingFinal;
+  }
+
+  /** Hearing speech, transcribing it, or neither. */
+  get state(): SpeechState {
+    return this.#speaking ? 'hearing' : this.#pendingFinal ? 'transcribing' : 'idle';
+  }
+
+  /** Calls the listener whenever `state` may have changed; returns an unsubscribe function. */
+  onChange(listener: () => void): () => void {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  }
+
+  /**
+   * Notices recognitions that produce no transcript (silence, noise, errors): the StreamAdapter then emits no
+   * FINAL_TRANSCRIPT, which would otherwise leave the tap busy until a timeout.
+   */
+  trackRecognition(engine: Recognizer): void {
+    const original = engine.recognize.bind(engine) as (...args: unknown[]) => Promise<stt.SpeechEvent>;
+    (engine as { recognize: (...args: unknown[]) => Promise<stt.SpeechEvent> }).recognize = async (...args) => {
+      try {
+        const event = await original(...args);
+        if (!event.alternatives?.[0]?.text) this.#recognizedNothing();
+        return event;
+      } catch (err) {
+        this.#recognizedNothing();
+        throw err;
+      }
+    };
+  }
+
+  #recognizedNothing(): void {
+    if (!this.#pendingFinal) return;
+    this.#pendingFinal = false;
+    this.#notify();
+  }
+
+  #notify(): void {
+    for (const listener of [...this.#listeners]) listener();
   }
 
   /** Number of final transcripts so far. */
@@ -90,13 +138,15 @@ export class SttTap {
     } else {
       return;
     }
-    for (const listener of this.#listeners) listener();
+    this.#notify();
   }
 
   /** Forget an unfinished utterance (the user turn was cleared). */
   reset(): void {
+    if (!this.#speaking && !this.#pendingFinal) return;
     this.#speaking = false;
     this.#pendingFinal = false;
+    this.#notify();
   }
 
   /** Appends silence to the STT input. Returns false when no audio has flowed yet. */

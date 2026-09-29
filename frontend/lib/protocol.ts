@@ -13,6 +13,13 @@ export const RPC_PTT_END = 'ptt_end';
 export const RPC_PTT_CANCEL = 'ptt_cancel';
 export const LANGUAGE_ATTRIBUTE = 'language';
 export const INPUT_MODE_ATTRIBUTE = 'input_mode';
+/** Set by the agent on itself: where speech-to-text is with the user's current utterance. */
+export const SPEECH_STATE_ATTRIBUTE = 'speech_state';
+export type SpeechState = 'idle' | 'hearing' | 'transcribing';
+
+export function toSpeechState(value: string | undefined): SpeechState {
+  return value === 'hearing' || value === 'transcribing' ? value : 'idle';
+}
 
 /** `always`: hands-free with automatic turn detection. `ptt`: hold a button while talking. */
 export const INPUT_MODES = ['always', 'ptt'] as const;
