@@ -88,6 +88,22 @@ Metal and Ollama inside Docker on a Mac is several times slower. To run Ollama i
 docker compose --profile ollama up --build     # also pulls LLM_MODEL
 ```
 
+## Production with docker compose
+
+[`docker-compose.prod.yml`](docker-compose.prod.yml) is an example that uses the published images
+`ghcr.io/mdvanes/llm-wiki-avatar-agent` and `ghcr.io/mdvanes/llm-wiki-avatar-frontend` instead of building from the
+repo, and runs LiveKit with real keys instead of dev mode. Set these in `.env` (compose refuses to start without them):
+`LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` (at least 32 characters, e.g. `openssl rand -base64 32`), `LIVEKIT_NODE_IP`
+(the host IP browsers can reach), `LIVEKIT_PUBLIC_URL` (e.g. `wss://livekit.example.com`) and `WIKI_PATH`.
+
+```bash
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
+
+Browsers only allow the microphone on https, so put the frontend (3000) and LiveKit signalling (7880) behind a TLS
+reverse proxy, and open 7881/tcp and 7882/udp for WebRTC media. The frontend has no authentication (see below).
+
 ## Native development
 
 Run the services natively, or in containers:
@@ -233,7 +249,7 @@ agent/        LiveKit agent: src/ (wikiAgent, tools, prompts, mood, speechFilter
 frontend/     Next.js app: token + wiki API routes, TalkingHead avatar, transcript, answer cards
 vocab/        hotwords.txt (manual), hotwords.generated.txt (npm run vocab)
 sample-wiki/  small example wiki used by default and by the tests
-docker-compose.yml, .env.example
+docker-compose.yml, docker-compose.prod.yml, .env.example
 ```
 
 ## Notes and limitations
