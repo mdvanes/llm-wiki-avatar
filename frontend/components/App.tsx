@@ -3,19 +3,31 @@
 import { RoomAudioRenderer, SessionProvider, StartAudio, useSession } from '@livekit/components-react';
 import { TokenSource } from 'livekit-client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { type Language, STRINGS, loadLanguage, saveLanguage } from '@/lib/language';
-import { LANGUAGE_ATTRIBUTE } from '@/lib/protocol';
+import {
+  type Language,
+  STRINGS,
+  loadInputMode,
+  loadLanguage,
+  saveInputMode,
+  saveLanguage,
+} from '@/lib/language';
+import type { AvatarConfig } from '@/lib/server-config';
+import { INPUT_MODE_ATTRIBUTE, type InputMode, LANGUAGE_ATTRIBUTE } from '@/lib/protocol';
 import { SessionView } from './SessionView';
 import { WelcomeView } from './WelcomeView';
 
 const tokenSource = TokenSource.endpoint('/api/token');
 
-export function App() {
+export function App({ avatar }: { avatar: AvatarConfig }) {
   const [language, setLanguage] = useState<Language>('en');
+  const [inputMode, setInputMode] = useState<InputMode>('always');
   const [error, setError] = useState<string>();
   const [starting, setStarting] = useState(false);
 
-  useEffect(() => setLanguage(loadLanguage()), []);
+  useEffect(() => {
+    setLanguage(loadLanguage());
+    setInputMode(loadInputMode());
+  }, []);
   useEffect(() => {
     document.documentElement.lang = language;
   }, [language]);
@@ -25,8 +37,16 @@ export function App() {
     saveLanguage(next);
   }, []);
 
-  // The token route puts the language on the participant, so the agent starts in the right language.
-  const options = useMemo(() => ({ participantAttributes: { [LANGUAGE_ATTRIBUTE]: language } }), [language]);
+  const changeInputMode = useCallback((next: InputMode) => {
+    setInputMode(next);
+    saveInputMode(next);
+  }, []);
+
+  // The token route puts these on the participant, so the agent starts in the right language and mic mode.
+  const options = useMemo(
+    () => ({ participantAttributes: { [LANGUAGE_ATTRIBUTE]: language, [INPUT_MODE_ATTRIBUTE]: inputMode } }),
+    [language, inputMode],
+  );
   const session = useSession(tokenSource, options);
   const strings = STRINGS[language];
 
@@ -48,12 +68,21 @@ export function App() {
     <SessionProvider session={session}>
       <div className="h-full">
         {session.isConnected ? (
-          <SessionView strings={strings} language={language} onLanguageChange={changeLanguage} />
+          <SessionView
+            avatar={avatar}
+            strings={strings}
+            language={language}
+            onLanguageChange={changeLanguage}
+            inputMode={inputMode}
+            onInputModeChange={changeInputMode}
+          />
         ) : (
           <WelcomeView
             strings={strings}
             language={language}
             onLanguageChange={changeLanguage}
+            inputMode={inputMode}
+            onInputModeChange={changeInputMode}
             onStart={start}
             connecting={connecting}
             error={error}

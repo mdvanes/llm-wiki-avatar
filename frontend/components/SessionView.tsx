@@ -1,34 +1,38 @@
 'use client';
 
 import {
-  TrackToggle,
   useAgent,
   useLocalParticipant,
   useSessionContext,
   useSessionMessages,
 } from '@livekit/components-react';
-import { Track } from 'livekit-client';
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import { useWikiStreams } from '@/hooks/useWikiStreams';
 import type { Language, Strings } from '@/lib/language';
-import { RPC_SET_LANGUAGE } from '@/lib/protocol';
+import type { AvatarConfig } from '@/lib/server-config';
+import { type InputMode, RPC_SET_INPUT_MODE, RPC_SET_LANGUAGE } from '@/lib/protocol';
 import { AnswerCard } from './AnswerCard';
+import { InputModeSelector } from './InputModeSelector';
 import { LanguageSelector } from './LanguageSelector';
+import { MicButton } from './MicButton';
 import { PageViewer, type PageRef } from './PageViewer';
 import { SourceChips } from './SourceChips';
 import { TalkingHeadAvatar } from './TalkingHeadAvatar';
 import { Transcript } from './Transcript';
 
 interface Props {
+  avatar: AvatarConfig;
   strings: Strings;
   language: Language;
   onLanguageChange: (language: Language) => void;
+  inputMode: InputMode;
+  onInputModeChange: (mode: InputMode) => void;
 }
 
-export function SessionView({ strings, language, onLanguageChange }: Props) {
+export function SessionView({ avatar, strings, language, onLanguageChange, inputMode, onInputModeChange }: Props) {
   const session = useSessionContext();
   const agent = useAgent();
-  const { localParticipant, isMicrophoneEnabled } = useLocalParticipant();
+  const { localParticipant } = useLocalParticipant();
   const { messages, send } = useSessionMessages();
   const { mood, answers, sources, agentLanguage } = useWikiStreams();
   const [page, setPage] = useState<PageRef | null>(null);
@@ -61,6 +65,26 @@ export function SessionView({ strings, language, onLanguageChange }: Props) {
       }
     },
     [agent.identity, language, localParticipant, onLanguageChange],
+  );
+
+  const changeInputMode = useCallback(
+    async (next: InputMode) => {
+      if (next === inputMode) return;
+      const previous = inputMode;
+      onInputModeChange(next);
+      if (!agent.identity) return;
+      try {
+        await localParticipant.performRpc({
+          destinationIdentity: agent.identity,
+          method: RPC_SET_INPUT_MODE,
+          payload: next,
+        });
+      } catch (err) {
+        console.error('set_input_mode failed', err);
+        onInputModeChange(previous);
+      }
+    },
+    [agent.identity, inputMode, localParticipant, onInputModeChange],
   );
 
   const submit = async (e: FormEvent) => {
@@ -101,6 +125,12 @@ export function SessionView({ strings, language, onLanguageChange }: Props) {
           </span>
         </div>
         <div className="flex items-center gap-3">
+          <InputModeSelector
+            value={inputMode}
+            onChange={changeInputMode}
+            disabled={!agent.isConnected}
+            strings={strings}
+          />
           <LanguageSelector
             value={language}
             onChange={changeLanguage}
@@ -123,52 +153,32 @@ export function SessionView({ strings, language, onLanguageChange }: Props) {
         </p>
       )}
 
-      <main className="grid min-h-0 flex-1 grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
-        <section className="flex min-h-[320px] flex-col overflow-hidden rounded-xl border border-border bg-panel">
-          <TalkingHeadAvatar className="min-h-0 flex-1" audioTrack={agentAudio} agentState={agent.state} mood={mood} />
-          <form onSubmit={submit} className="flex items-center gap-2 border-t border-border p-3">
-            <TrackToggle
-              source={Track.Source.Microphone}
-              showIcon
-              title={isMicrophoneEnabled ? strings.mute : strings.unmute}
-              className={`grid size-9 shrink-0 place-items-center rounded-full border ${
-                isMicrophoneEnabled ? 'border-accent text-accent' : 'border-danger text-danger'
-              } [&>svg]:size-4`}
-            />
-            <input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder={strings.typePlaceholder}
-              className="min-w-0 flex-1 rounded-full border border-border bg-panel-2 px-4 py-2 text-sm outline-none focus:border-accent"
-            />
-            <button
-              type="submit"
-              disabled={!draft.trim()}
-              className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-bg disabled:opacity-40"
-            >
-              {strings.send}
-            </button>
-          </form>
-        </section>
-
+      <main className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:overflow-hidden">
         <section className="flex min-h-0 flex-col gap-4">
-          <div className="flex max-h-[55%] min-h-0 flex-col rounded-xl border border-border bg-panel">
-            <h2 className="border-b border-border px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted">
-              {strings.onScreen}
-            </h2>
-            <div className="flex min-h-0 flex-col gap-3 overflow-y-auto p-3">
-              <div>
-                <h3 className="mb-1.5 text-xs text-muted">{strings.sources}</h3>
-                {sources.length > 0 ? (
-                  <SourceChips sources={sources} onOpen={setPage} />
-                ) : (
-                  <p className="text-xs text-muted/70">{strings.noSources}</p>
-                )}
-              </div>
-              {newestFirst.map((a) => (
-                <AnswerCard key={a.id} answer={a} onOpen={setPage} />
-              ))}
-            </div>
+          <div className="flex shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-panel">
+            <TalkingHeadAvatar
+              avatar={avatar}
+              className="h-[50vh] min-h-[240px]"
+              audioTrack={agentAudio}
+              agentState={agent.state}
+              mood={mood}
+            />
+            <form onSubmit={submit} className="flex items-center gap-2 border-t border-border p-3">
+              <MicButton mode={inputMode} agentIdentity={agent.identity} strings={strings} />
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder={strings.typePlaceholder}
+                className="min-w-0 flex-1 rounded-full border border-border bg-panel-2 px-4 py-2 text-sm outline-none focus:border-accent"
+              />
+              <button
+                type="submit"
+                disabled={!draft.trim()}
+                className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-bg disabled:opacity-40"
+              >
+                {strings.send}
+              </button>
+            </form>
           </div>
           <div className="flex min-h-[200px] flex-1 flex-col rounded-xl border border-border bg-panel">
             <h2 className="border-b border-border px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted">
@@ -182,6 +192,25 @@ export function SessionView({ strings, language, onLanguageChange }: Props) {
                 onWikiLink={(name) => setPage({ name })}
               />
             </div>
+          </div>
+        </section>
+
+        <section className="flex min-h-[320px] flex-col rounded-xl border border-border bg-panel">
+          <h2 className="border-b border-border px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted">
+            {strings.onScreen}
+          </h2>
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+            <div>
+              <h3 className="mb-1.5 text-xs text-muted">{strings.sources}</h3>
+              {sources.length > 0 ? (
+                <SourceChips sources={sources} onOpen={setPage} />
+              ) : (
+                <p className="text-xs text-muted/70">{strings.noSources}</p>
+              )}
+            </div>
+            {newestFirst.map((a) => (
+              <AnswerCard key={a.id} answer={a} onOpen={setPage} />
+            ))}
           </div>
         </section>
       </main>

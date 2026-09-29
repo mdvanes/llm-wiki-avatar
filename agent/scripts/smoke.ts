@@ -23,8 +23,10 @@ async function check(name: string, fn: () => Promise<string>) {
 }
 
 async function ok(res: Response): Promise<Response> {
-  if (!res.ok) throw new Error(`HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
-  return res;
+  if (res.ok) return res;
+  const body = (await res.text()).slice(0, 200);
+  const hint = /not installed/.test(body) ? ' → run: docker compose up speaches-models' : '';
+  throw new Error(`HTTP ${res.status} ${body}${hint}`);
 }
 
 const PHRASES = {

@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev --webpack",
+    "dev": "node scripts/next.mjs dev --webpack",
     "build": "next build --webpack",
-    "start": "next start",
+    "start": "node scripts/next.mjs start",
     "typecheck": "tsc --noEmit",
     "fetch-avatar": "node scripts/fetch-avatar.mjs",
     "test": "vitest --run"

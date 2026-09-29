@@ -3,9 +3,17 @@ import * as openai from '@livekit/agents-plugin-openai';
 import type { ReadableStream } from 'node:stream/web';
 import { fileURLToPath } from 'node:url';
 import { type Config, type Language, isLanguage, loadConfig } from './config.ts';
+import { InputModeController, SttTap, isInputMode } from './inputMode.ts';
 import { languageProfiles } from './language.ts';
 import { MoodFilter } from './mood.ts';
-import { RPC_SET_LANGUAGE, RoomPublisher } from './publisher.ts';
+import {
+  RPC_PTT_CANCEL,
+  RPC_PTT_END,
+  RPC_PTT_START,
+  RPC_SET_INPUT_MODE,
+  RPC_SET_LANGUAGE,
+  RoomPublisher,
+} from './publisher.ts';
 import { SpeachesTTS } from './speachesTts.ts';
 import { SpeechFilter } from './speechFilter.ts';
 import { filterTextStream } from './textStream.ts';
@@ -15,6 +23,8 @@ import { Wiki } from './wiki/wiki.ts';
 
 /** Participant attribute the frontend sets (via its token) to choose the language. */
 export const LANGUAGE_ATTRIBUTE = 'language';
+/** Participant attribute for the microphone mode: `always` or `ptt` (push-to-talk). */
+export const INPUT_MODE_ATTRIBUTE = 'input_mode';
 
 /** TTS input transforms: drop the mood tag and code, then the built-in markdown/emoji cleanup. */
 export function ttsTextTransforms(): voice.AgentSessionOptions['ttsTextTransforms'] {
@@ -68,6 +78,7 @@ export default defineAgent({
     });
     const tts = new SpeachesTTS({ ...initial.tts, apiKey: cfg.SPEACHES_API_KEY, speed: cfg.TTS_SPEED });
 
+    const sttTap = new SttTap();
     const publisher = new RoomPublisher(ctx.room, (err) => logger.warn({ err }, 'failed to publish to room'));
     const agent = new WikiAgent({
       wiki,
@@ -79,17 +90,19 @@ export default defineAgent({
       tts,
       sttPrompt,
       corrector,
+      sttTap,
     });
     wiki.watch();
 
+    // Pin the local model: without a version, dev mode picks the cloud turn detector.
+    const turnDetector = new inference.TurnDetector({ version: 'v1-mini' });
     const session = new voice.AgentSession({
       vad: new inference.VAD(),
       stt,
       llm: createLLM(cfg),
       tts,
       turnHandling: {
-        // Pin the local model: without a version, dev mode picks the cloud turn detector.
-        turnDetection: new inference.TurnDetector({ version: 'v1-mini' }),
+        turnDetection: turnDetector,
         interruption: { mode: 'vad' },
         // On CPU a speculative reply competes with the real one for cycles.
         preemptiveGeneration: { enabled: false },
@@ -113,12 +126,40 @@ export default defineAgent({
       return language;
     });
 
+    const inputMode = new InputModeController(session, sttTap, {
+      autoTurnDetection: turnDetector,
+      transcriptTimeoutMs: cfg.SPEECH_TIMEOUT_S * 1000,
+    });
+    const rpc = ctx.room.localParticipant;
+    rpc?.registerRpcMethod(RPC_SET_INPUT_MODE, async ({ payload }) => {
+      const mode = payload.trim().toLowerCase();
+      if (!isInputMode(mode)) throw new Error(`unsupported input mode "${payload}"`);
+      inputMode.setMode(mode);
+      logger.info({ mode }, 'input mode changed');
+      return mode;
+    });
+    rpc?.registerRpcMethod(RPC_PTT_START, async () => {
+      inputMode.startTurn();
+      return 'ok';
+    });
+    rpc?.registerRpcMethod(RPC_PTT_END, async () => {
+      const result = await inputMode.endTurn();
+      logger.debug({ result }, 'push-to-talk turn ended');
+      return result;
+    });
+    rpc?.registerRpcMethod(RPC_PTT_CANCEL, async () => {
+      inputMode.cancelTurn();
+      return 'ok';
+    });
+
     const participant = await ctx.waitForParticipant();
+    const requestedMode = participant.attributes[INPUT_MODE_ATTRIBUTE]?.toLowerCase();
+    if (isInputMode(requestedMode)) inputMode.setMode(requestedMode);
     const requested = participant.attributes[LANGUAGE_ATTRIBUTE]?.toLowerCase();
     const language: Language = isLanguage(requested) ? requested : cfg.DEFAULT_LANGUAGE;
     await agent.setLanguage(language, { announce: false });
     publisher.language(language);
-    logger.info({ language, participant: participant.identity }, 'session started');
+    logger.info({ language, inputMode: inputMode.mode, participant: participant.identity }, 'session started');
 
     session.say(`[mood:happy] ${profiles[language].greeting}`);
   },

@@ -1,3 +1,5 @@
+import { type InputMode, isInputMode } from './protocol';
+
 export const LANGUAGES = [
   { code: 'en', label: 'English', short: 'EN' },
   { code: 'nl', label: 'Nederlands', short: 'NL' },
@@ -22,6 +24,18 @@ export function saveLanguage(language: Language): void {
   window.localStorage.setItem(STORAGE_KEY, language);
 }
 
+const INPUT_MODE_KEY = 'llm-wiki-avatar.inputMode';
+
+export function loadInputMode(): InputMode {
+  if (typeof window === 'undefined') return 'always';
+  const stored = window.localStorage.getItem(INPUT_MODE_KEY);
+  return isInputMode(stored) ? stored : 'always';
+}
+
+export function saveInputMode(mode: InputMode): void {
+  window.localStorage.setItem(INPUT_MODE_KEY, mode);
+}
+
 /** UI strings; the agent handles the spoken side. */
 export const STRINGS = {
   en: {
@@ -44,6 +58,11 @@ export const STRINGS = {
     noSources: 'Pages used for the answer appear here.',
     close: 'Close',
     language: 'Language',
+    micMode: 'Microphone mode',
+    alwaysOn: 'Always on',
+    pushToTalk: 'Push to talk',
+    holdToTalk: 'Hold to talk (or hold Space)',
+    talking: 'Release to send',
     empty: 'Say hello, or ask something like "How are Stripe webhooks retried?"',
   },
   nl: {
@@ -66,6 +85,11 @@ export const STRINGS = {
     noSources: 'Gebruikte pagina’s verschijnen hier.',
     close: 'Sluiten',
     language: 'Taal',
+    micMode: 'Microfoonmodus',
+    alwaysOn: 'Altijd aan',
+    pushToTalk: 'Drukken om te praten',
+    holdToTalk: 'Ingedrukt houden om te praten (of houd spatie ingedrukt)',
+    talking: 'Loslaten om te versturen',
     empty: 'Zeg hallo, of vraag bijvoorbeeld "Hoe worden Stripe-webhooks opnieuw geprobeerd?"',
   },
 } satisfies Record<Language, Record<string, string>>;

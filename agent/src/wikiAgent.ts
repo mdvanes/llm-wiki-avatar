@@ -3,6 +3,7 @@ import type * as openai from '@livekit/agents-plugin-openai';
 import type { AudioFrame } from '@livekit/rtc-node';
 import { ReadableStream, TransformStream } from 'node:stream/web';
 import type { Config, Language } from './config.ts';
+import type { SttTap } from './inputMode.ts';
 import type { LanguageProfile } from './language.ts';
 import { MoodFilter } from './mood.ts';
 import { buildInstructions, buildWikiContext, wikiOverview } from './prompts.ts';
@@ -31,6 +32,8 @@ export interface WikiAgentOptions {
   /** Whisper prompt with hotwords, primes the recognizer to spell identifiers correctly. */
   sttPrompt?: string;
   corrector?: VocabularyCorrector;
+  /** Lets push-to-talk flush STT on release and follow its progress. */
+  sttTap?: SttTap;
 }
 
 /** Inline code spans or fenced blocks, as the model writes identifiers and commands. */
@@ -194,7 +197,9 @@ export class WikiAgent extends voice.Agent {
     audio: ReadableStream<AudioFrame> | AsyncIterable<AudioFrame>,
     modelSettings: voice.ModelSettings,
   ): Promise<ReadableStream<stt.SpeechEvent | string> | null> {
-    const events = await voice.Agent.default.sttNode(this, audio, modelSettings);
+    const tap = this.#opts.sttTap;
+    let events = await voice.Agent.default.sttNode(this, tap ? tap.wrapAudio(audio) : audio, modelSettings);
+    if (events && tap) events = tap.watchEvents(events);
     const corrector = this.#opts.corrector;
     if (!events || !corrector || corrector.size === 0) return events;
     const logger = log();

@@ -10,6 +10,10 @@ export const TOPICS = {
 } as const;
 
 export const RPC_SET_LANGUAGE = 'set_language';
+export const RPC_SET_INPUT_MODE = 'set_input_mode';
+export const RPC_PTT_START = 'ptt_start';
+export const RPC_PTT_END = 'ptt_end';
+export const RPC_PTT_CANCEL = 'ptt_cancel';
 
 export interface Source {
   path: string;

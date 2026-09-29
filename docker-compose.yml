@@ -25,7 +25,7 @@ services:
   speaches:
     image: ghcr.io/speaches-ai/speaches:latest-cpu
     environment:
-      # Downloaded on first start (about 1 GB in total) into the hf-cache volume.
+      # Loaded at startup by newer Speaches versions; speaches-models below does the download.
       PRELOAD_MODELS: '["${STT_MODEL:-Systran/faster-whisper-small}","${TTS_EN_MODEL:-speaches-ai/Kokoro-82M-v1.0-ONNX}","${TTS_NL_MODEL:-speaches-ai/piper-nl_NL-mls-medium}"]'
       WHISPER__COMPUTE_TYPE: int8
       WHISPER__INFERENCE_DEVICE: cpu
@@ -42,9 +42,27 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
-      # The first start downloads the models before the server listens.
-      start_period: 15m
+      start_period: 2m
     restart: unless-stopped
+
+  # Downloads the speech models into the hf-cache volume (about 1 GB on first run, instant after).
+  speaches-models:
+    image: curlimages/curl:latest
+    environment:
+      MODELS: ${STT_MODEL:-Systran/faster-whisper-small} ${TTS_EN_MODEL:-speaches-ai/Kokoro-82M-v1.0-ONNX} ${TTS_NL_MODEL:-speaches-ai/piper-nl_NL-mls-medium}
+    entrypoint:
+      - sh
+      - -c
+      - |
+        for m in $$MODELS; do
+          echo "downloading $$m"
+          curl -fsS -X POST --max-time 1800 "http://speaches:8000/v1/models/$$m" || exit 1
+          echo
+        done
+    depends_on:
+      speaches:
+        condition: service_healthy
+    restart: on-failure
 
   agent:
     build:
@@ -78,8 +96,8 @@ services:
     depends_on:
       livekit:
         condition: service_started
-      speaches:
-        condition: service_healthy
+      speaches-models:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   frontend:
@@ -93,6 +111,12 @@ services:
       LIVEKIT_API_SECRET: secret
       AGENT_NAME: ${AGENT_NAME:-llm-wiki-avatar}
       WIKI_DIR: /wiki
+      # Avatars fetched into frontend/public/avatars before the build are part of the image.
+      AVATAR_URL: ${AVATAR_URL:-/avatars/mpfb.glb}
+      AVATAR_BODY: ${AVATAR_BODY:-F}
+      AVATAR_VIEW: ${AVATAR_VIEW:-head}
+      AVATAR_CAMERA_DISTANCE: ${AVATAR_CAMERA_DISTANCE:-0}
+      AVATAR_CAMERA_Y: ${AVATAR_CAMERA_Y:-}
     volumes:
       - ${WIKI_PATH:-./sample-wiki}:/wiki:ro
     ports:
