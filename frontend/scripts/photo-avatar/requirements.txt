@@ -1,0 +1,6 @@
+numpy
+pillow
+rembg[cpu]
+triangle
+# 1.0.x crashes on macOS ("Service is unavailable").
+mediapipe==0.10.21

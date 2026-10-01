@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LOOKS, browPath, facePath, lidPath } from '@/lib/cartoon/character';
+import { LOOKS, browPath, browShape, facePath, lidPath, stubblePath } from '@/lib/cartoon/character';
 import { FaceAnimator, NEUTRAL_FACE, faceTargets } from '@/lib/cartoon/face';
 import { NEUTRAL_MOUTH, mouthGeometry, mouthPose } from '@/lib/cartoon/mouth';
 import { REST, type VisemeShape } from '@/lib/wordLipsync';
@@ -79,6 +79,21 @@ describe('character geometry', () => {
     expect(chin(facePath(LOOKS.male, 6)) - chin(facePath(LOOKS.male, 0))).toBeCloseTo(6);
   });
 
+  it('keeps the stubble on the chin as the jaw drops', () => {
+    const chin = (d: string) => Math.max(...numbers(d).filter((_, i) => i % 2 === 1));
+    for (const drop of [0, 6]) {
+      expect(chin(stubblePath(LOOKS.male, drop))).toBeCloseTo(chin(facePath(LOOKS.male, drop)));
+    }
+    expect(LOOKS.female.stubble).toBeUndefined();
+  });
+
+  it('draws brows thick at the inner end, tapering outwards', () => {
+    const n = numbers(browShape('R', { inner: 0, outer: 0 }, 5));
+    // Points: 0-1 inner top, 4-5 outer top, 8-9 outer bottom, 12-13 inner bottom.
+    expect(n[13]! - n[1]!).toBeCloseTo(2 * 5 * 0.62);
+    expect(n[9]! - n[5]!).toBeCloseTo(2 * 5 * 0.16);
+  });
+
   it('closes the lid over the eye', () => {
     const lidY = (c: number) => numbers(lidPath('L', c).edge)[1]!;
     expect(lidY(1)).toBeGreaterThan(lidY(0) + 14);
@@ -143,3 +158,4 @@ describe('FaceAnimator', () => {
     expect(pose.breath).toBeCloseTo(0);
   });
 });
+

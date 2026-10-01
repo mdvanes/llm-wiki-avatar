@@ -1,6 +1,6 @@
-import { type Look, NECK_PIVOT, browPath, facePath, lidPath } from '@/lib/cartoon/character';
+import { type Look, NECK_PIVOT, browShape, facePath, lidPath, stubblePath } from '@/lib/cartoon/character';
 import type { FacePose } from '@/lib/cartoon/face';
-import { mouthGeometry, mouthPose } from '@/lib/cartoon/mouth';
+import { type MouthGeometry, mouthGeometry, mouthPose } from '@/lib/cartoon/mouth';
 import type { VisemeShape } from '@/lib/wordLipsync';
 
 /** Sets attributes only when they change, so idle frames touch the DOM as little as possible. */
@@ -28,21 +28,7 @@ export class Parts {
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
-/** Moves the parts of a CartoonCharacter to a face pose and mouth shape. */
-export function drawFrame(parts: Parts, look: Look, pose: FacePose, shape: VisemeShape): void {
-  const mouth = mouthGeometry(mouthPose(shape, pose.smile), look.mouth);
-  const head = `translate(${r2(pose.headX)} ${r2(pose.headY)}) rotate(${r2(pose.tilt)} ${NECK_PIVOT.x} ${NECK_PIVOT.y})`;
-  parts.set('head', { transform: head });
-  parts.set('head-back', { transform: head });
-  parts.set('body', { transform: `translate(0 ${r2(-pose.breath)})` });
-  parts.set('face', { d: facePath(look, mouth.jawDrop) });
-  for (const side of ['L', 'R'] as const) {
-    const lid = lidPath(side, pose.lid);
-    parts.set(`lid-${side}`, { d: lid.lid });
-    parts.set(`lid-edge-${side}`, { d: lid.edge });
-    parts.set(`iris-${side}`, { transform: `translate(${r2(pose.gazeX)} ${r2(pose.gazeY)})` });
-    parts.set(`brow-${side}`, { d: browPath(side, side === 'L' ? pose.browL : pose.browR) });
-  }
+function setMouth(parts: Parts, mouth: MouthGeometry): void {
   parts.set('lips', { d: mouth.lips });
   parts.set('cavity', { d: mouth.cavity });
   parts.set('cavity-clip', { d: mouth.cavity });
@@ -54,4 +40,26 @@ export function drawFrame(parts: Parts, look: Look, pose: FacePose, shape: Visem
     height: mouth.teeth.height,
   });
   parts.set('tongue', { cy: mouth.tongue.cy, rx: mouth.tongue.rx, ry: mouth.tongue.ry });
+}
+
+/** Moves the parts of a CartoonCharacter to a face pose and mouth shape. */
+export function drawFrame(parts: Parts, look: Look, pose: FacePose, shape: VisemeShape): void {
+  const mouth = mouthGeometry(mouthPose(shape, pose.smile), look.mouth);
+  const head = `translate(${r2(pose.headX)} ${r2(pose.headY)}) rotate(${r2(pose.tilt)} ${NECK_PIVOT.x} ${NECK_PIVOT.y})`;
+  parts.set('head', { transform: head });
+  parts.set('head-back', { transform: head });
+  parts.set('body', { transform: `translate(0 ${r2(-pose.breath)})` });
+  const face = facePath(look, mouth.jawDrop);
+  parts.set('face', { d: face });
+  parts.set('face-clip', { d: face });
+  if (look.stubble) parts.set('stubble', { d: stubblePath(look, mouth.jawDrop) });
+  for (const side of ['L', 'R'] as const) {
+    const lid = lidPath(side, pose.lid);
+    parts.set(`lid-${side}`, { d: lid.lid });
+    parts.set(`lid-edge-${side}`, { d: lid.edge });
+    parts.set(`lid-shadow-${side}`, { d: lid.edge });
+    parts.set(`iris-${side}`, { transform: `translate(${r2(pose.gazeX)} ${r2(pose.gazeY)})` });
+    parts.set(`brow-${side}`, { d: browShape(side, side === 'L' ? pose.browL : pose.browR, look.browWidth) });
+  }
+  setMouth(parts, mouth);
 }

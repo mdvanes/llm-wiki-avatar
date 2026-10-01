@@ -1,17 +1,22 @@
-'use client';
+"use client";
 
-import type { AgentState } from '@livekit/components-react';
-import { useEffect, useId, useRef } from 'react';
-import { useWordSegments } from '@/hooks/useWordSegments';
-import { LOOKS } from '@/lib/cartoon/character';
-import { FaceAnimator } from '@/lib/cartoon/face';
-import { LipSync, brightness, rms } from '@/lib/lipsync';
-import type { AvatarGender } from '@/lib/presentation';
-import type { Lipsync, Mood } from '@/lib/protocol';
-import { REST, WordLipSync } from '@/lib/wordLipsync';
-import { CartoonCharacter } from './cartoon/CartoonCharacter';
-import { Parts, drawFrame } from './cartoon/draw';
-import { SpinnerOverlay } from './Spinner';
+import type { AgentState } from "@livekit/components-react";
+import { useEffect, useId, useRef, useState } from "react";
+import { useWordSegments } from "@/hooks/useWordSegments";
+import { LOOKS } from "@/lib/cartoon/character";
+import { FaceAnimator } from "@/lib/cartoon/face";
+import { mouthPose } from "@/lib/cartoon/mouth";
+import type { PhotoMesh } from "@/lib/photo/mesh";
+import { FEMALE_PHOTO } from "@/lib/photo/female";
+import { MALE_PHOTO } from "@/lib/photo/male";
+import { LipSync, brightness, rms } from "@/lib/lipsync";
+import type { AvatarGender } from "@/lib/presentation";
+import type { Lipsync, Mood } from "@/lib/protocol";
+import { REST, WordLipSync } from "@/lib/wordLipsync";
+import { CartoonCharacter } from "./cartoon/CartoonCharacter";
+import { Parts, drawFrame } from "./cartoon/draw";
+import { PhotoRenderer } from "./photo/PhotoRenderer";
+import { SpinnerOverlay } from "./Spinner";
 
 export interface MoodEvent {
   mood: Mood;
@@ -36,11 +41,30 @@ interface Props {
   className?: string;
 }
 
+/** Avatars that are an animated photo; the others are drawn cartoons. */
+const PHOTOS: Partial<
+  Record<AvatarGender, { mesh: PhotoMesh; image: string; background?: string }>
+> = {
+  male: {
+    mesh: MALE_PHOTO,
+    image: "/avatars/male.webp",
+    background: "/avatars/male-bg.webp",
+  },
+  female: {
+    mesh: FEMALE_PHOTO,
+    image: "/avatars/female.webp",
+    background: "/avatars/female-bg.webp",
+  },
+};
+
 /** Word lip-sync with TalkingHead's English text-to-viseme rules; the module is loaded on first use. */
 async function createWordLipSync(): Promise<WordLipSync> {
-  const { LipsyncEn } = await import('@met4citizen/talkinghead/modules/lipsync-en.mjs');
+  const { LipsyncEn } =
+    await import("@met4citizen/talkinghead/modules/lipsync-en.mjs");
   const rules = new LipsyncEn();
-  return new WordLipSync((word) => rules.wordsToVisemes(rules.preProcessText(word)));
+  return new WordLipSync((word) =>
+    rules.wordsToVisemes(rules.preProcessText(word)),
+  );
 }
 
 /** Audio analysis chain for the agent's voice; not connected to the speakers (RoomAudioRenderer plays it). */
@@ -65,7 +89,10 @@ class VoiceAnalyser {
   sample(): { level: number; tone: number } {
     this.#analyser.getFloatTimeDomainData(this.#time);
     this.#analyser.getByteFrequencyData(this.#freq);
-    return { level: rms(this.#time), tone: brightness(this.#freq, this.ctx.sampleRate) };
+    return {
+      level: rms(this.#time),
+      tone: brightness(this.#freq, this.ctx.sampleRate),
+    };
   }
 
   close(): void {
@@ -84,11 +111,15 @@ export function CartoonAvatar({
   agentState,
   mood,
   silenced = false,
-  lipsync = 'audio',
+  lipsync = "audio",
   className,
 }: Props) {
-  const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
+  const uid = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const svgRef = useRef<SVGSVGElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  // Without WebGL the photo avatar falls back to the drawn cartoon.
+  const [noWebGL, setNoWebGL] = useState(false);
+  const photo = noWebGL ? undefined : PHOTOS[gender];
   const analyserRef = useRef<VoiceAnalyser | null>(null);
   const loudness = useRef(new LipSync());
   const words = useRef<WordLipSync | null>(null);
@@ -98,19 +129,41 @@ export function CartoonAvatar({
 
   // The animation loop.
   useEffect(() => {
-    const svg = svgRef.current;
-    if (!svg) return;
-    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    let renderer: PhotoRenderer | null = null;
+    let parts: Parts | null = null;
+    if (photo) {
+      if (!canvasRef.current) return;
+      try {
+        renderer = new PhotoRenderer(
+          canvasRef.current,
+          photo.mesh,
+          photo.image,
+          photo.background,
+        );
+      } catch (err) {
+        console.warn("photo avatar unavailable", err);
+        setNoWebGL(true);
+        return;
+      }
+    } else {
+      if (!svgRef.current) return;
+      parts = new Parts(svgRef.current);
+    }
+    const reducedMotion =
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     const animator = new FaceAnimator({ motion: reducedMotion ? 0.3 : 1 });
     face.current = animator;
-    const parts = new Parts(svg);
     const look = LOOKS[gender];
     let last = performance.now();
     let frame = requestAnimationFrame(function tick(now) {
       frame = requestAnimationFrame(tick);
       const dt = Math.min(100, now - last);
       last = now;
-      const { agentState: state, silenced: quiet, lipsync: mode } = live.current;
+      const {
+        agentState: state,
+        silenced: quiet,
+        lipsync: mode,
+      } = live.current;
 
       let shape = REST;
       let level = 0;
@@ -118,20 +171,29 @@ export function CartoonAvatar({
       if (analyser && !quiet) {
         const sample = analyser.sample();
         // Keep the loudness lip-sync running, so it can take over smoothly where there are no word timings.
-        const byLoudness = loudness.current.update(sample.level, sample.tone, dt);
-        const byWords = mode === 'words' ? words.current?.update(now, sample.level, dt) : null;
+        const byLoudness = loudness.current.update(
+          sample.level,
+          sample.tone,
+          dt,
+        );
+        const byWords =
+          mode === "words"
+            ? words.current?.update(now, sample.level, dt)
+            : null;
         shape = byWords ?? { ...REST, ...byLoudness };
         level = loudness.current.level;
       }
 
       const pose = animator.update(now, dt, { state, level });
-      drawFrame(parts, look, pose, shape);
+      if (renderer) renderer.draw(pose, mouthPose(shape, pose.smile));
+      else if (parts) drawFrame(parts, look, pose, shape);
     });
     return () => {
       cancelAnimationFrame(frame);
+      renderer?.dispose();
       face.current = null;
     };
-  }, [gender]);
+  }, [gender, photo]);
 
   // Moods from the agent's [mood:x] tags.
   useEffect(() => {
@@ -153,7 +215,7 @@ export function CartoonAvatar({
 
   // Word timings for the premium avatar.
   useEffect(() => {
-    if (lipsync !== 'words') {
+    if (lipsync !== "words") {
       words.current?.clear();
       return;
     }
@@ -163,18 +225,20 @@ export function CartoonAvatar({
       .then((w) => {
         if (!cancelled) words.current = w;
       })
-      .catch((err: unknown) => console.warn('word lip-sync unavailable', err));
+      .catch((err: unknown) => console.warn("word lip-sync unavailable", err));
     return () => {
       cancelled = true;
     };
   }, [lipsync]);
   useWordSegments((segment) => {
-    if (live.current.lipsync === 'words') words.current?.add(segment, performance.now());
+    if (live.current.lipsync === "words")
+      words.current?.add(segment, performance.now());
   });
   // Segments left over from speech that ended or was interrupted must not play with the next reply.
   const previousState = useRef(agentState);
   useEffect(() => {
-    if (previousState.current === 'speaking' && agentState !== 'speaking') words.current?.clear();
+    if (previousState.current === "speaking" && agentState !== "speaking")
+      words.current?.clear();
     previousState.current = agentState;
   }, [agentState]);
 
@@ -186,19 +250,33 @@ export function CartoonAvatar({
 
   return (
     <div
-      className={`relative overflow-hidden ${className ?? ''}`}
-      style={{ background: 'radial-gradient(ellipse at 50% 45%, #34363b 0%, #23252a 45%, #171717 80%)' }}
+      className={`relative overflow-hidden ${className ?? ""}`}
+      style={{
+        background:
+          "radial-gradient(ellipse at 50% 45%, #34363b 0%, #23252a 45%, #171717 80%)",
+      }}
     >
-      <svg
-        ref={svgRef}
-        viewBox="40 60 320 340"
-        preserveAspectRatio="xMidYMax meet"
-        className="absolute inset-0 h-full w-full"
-        role="img"
-        aria-label={label}
-      >
-        <CartoonCharacter gender={gender} uid={uid} />
-      </svg>
+      {photo ? (
+        <canvas
+          key={gender}
+          ref={canvasRef}
+          className="absolute inset-0 h-full w-full"
+          role="img"
+          aria-label={label}
+        />
+      ) : (
+        <svg
+          ref={svgRef}
+          key={gender}
+          viewBox="40 60 320 340"
+          preserveAspectRatio="xMidYMax meet"
+          className="absolute inset-0 h-full w-full"
+          role="img"
+          aria-label={label}
+        >
+          <CartoonCharacter gender={gender} uid={uid} />
+        </svg>
+      )}
       {busy && busyLabel && <SpinnerOverlay label={busyLabel} dim />}
     </div>
   );
