@@ -17,7 +17,6 @@ describe('presentation', () => {
       ['off', 'off', null, 'audio'],
       ['voice-female', 'female', null, 'audio'],
       ['voice-male', 'male', null, 'audio'],
-      ['avatar-female', 'female', 'female', 'audio'],
       ['avatar-female-premium', 'female', 'female', 'words'],
       ['avatar-male', 'male', 'male', 'audio'],
     ]);
@@ -31,6 +30,7 @@ describe('presentation', () => {
 
   it('picks the avatar option that matches a voice', () => {
     expect(presentationForVoice('off')).toBe('off');
+    expect(presentationForVoice('female')).toBe('avatar-female-premium');
     expect(presentationForVoice('male')).toBe('avatar-male');
   });
 
@@ -48,7 +48,12 @@ describe('presentation', () => {
     it('falls back on the server side and for invalid stored values', () => {
       expect(loadPresentation('voice-male')).toBe('voice-male');
       stubStorage({ 'llm-wiki-avatar.presentation': 'hologram' });
-      expect(loadPresentation()).toBe('avatar-female');
+      expect(loadPresentation()).toBe('avatar-female-premium');
+    });
+
+    it('replaces the removed avatar-female with the premium female avatar', () => {
+      stubStorage({ 'llm-wiki-avatar.presentation': 'avatar-female' });
+      expect(loadPresentation('avatar-male')).toBe('avatar-female-premium');
     });
 
     it('remembers the choice', () => {
@@ -61,9 +66,9 @@ describe('presentation', () => {
 
 describe('defaultPresentation', () => {
   it('starts with the presentation that matches DEFAULT_VOICE', () => {
-    expect(defaultPresentation({})).toBe('avatar-female');
+    expect(defaultPresentation({})).toBe('avatar-female-premium');
     expect(defaultPresentation({ DEFAULT_VOICE: 'male' })).toBe('avatar-male');
     expect(defaultPresentation({ DEFAULT_VOICE: 'off' })).toBe('off');
-    expect(defaultPresentation({ DEFAULT_VOICE: 'x' })).toBe('avatar-female');
+    expect(defaultPresentation({ DEFAULT_VOICE: 'x' })).toBe('avatar-female-premium');
   });
 });

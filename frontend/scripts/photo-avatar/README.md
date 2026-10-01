@@ -23,3 +23,6 @@ mkdir work && cp /path/to/photo.png work/photo.png && cd work
 Works best with an evenly lit, front-facing photo with a closed, relaxed mouth. Crop around the head and collar with a
 little room above the hair, at about 1.4:1. The current crops are `460 10 660 460` (male) and `615 0 500 360` (female)
 from 1568×882 photos.
+
+When you replace a photo, check its license and update `frontend/public/avatars/CREDITS.md` and the *Avatar photos*
+note in the main README.

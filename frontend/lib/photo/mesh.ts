@@ -3,23 +3,23 @@
  * by blending displacement fields — jaw, mouth width, smile, blinks, gaze and brows — then turned and swayed with the
  * head. The fields come from `frontend/scripts/photo-avatar/mesh.py`; this module only blends them.
  */
-import type { FacePose } from "../cartoon/face";
-import type { MouthPose } from "../cartoon/mouth";
+import type { FacePose } from '../cartoon/face';
+import type { MouthPose } from '../cartoon/mouth';
 
 export const CONTROLS = [
-  "open",
-  "width",
-  "smile",
-  "blinkL",
-  "blinkR",
-  "gazeXL",
-  "gazeYL",
-  "gazeXR",
-  "gazeYR",
-  "browInnerL",
-  "browOuterL",
-  "browInnerR",
-  "browOuterR",
+  'open',
+  'width',
+  'smile',
+  'blinkL',
+  'blinkR',
+  'gazeXL',
+  'gazeYL',
+  'gazeXR',
+  'gazeYR',
+  'browInnerL',
+  'browOuterL',
+  'browInnerR',
+  'browOuterR',
 ] as const;
 export type Control = (typeof CONTROLS)[number];
 export type Controls = Record<Control, number>;
@@ -58,17 +58,12 @@ const TILT = 0.5;
 /** The photo already smiles about as much as the neutral face. */
 const REST_SMILE = 0.15;
 
-const clamp = (v: number, lo: number, hi: number) =>
-  Math.min(hi, Math.max(lo, v));
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 /** The FacePose `lid` rests at 0.1 with the eyes fully open; this maps it to 0 open .. 1 closed. */
 export const lidClosure = (lid: number) => clamp((lid - 0.1) / 0.9, 0, 1);
 
-export function photoControls(
-  pose: FacePose,
-  mouth: MouthPose,
-  mouthWidth = REF_MOUTH,
-): Controls {
+export function photoControls(pose: FacePose, mouth: MouthPose, mouthWidth = REF_MOUTH): Controls {
   const k = mouthWidth / REF_MOUTH;
   const blink = lidClosure(pose.lid);
   return {
@@ -96,10 +91,7 @@ export interface HeadMotion {
   breath: number;
 }
 
-export const headMotion = (
-  pose: FacePose,
-  mouthWidth = REF_MOUTH,
-): HeadMotion => {
+export const headMotion = (pose: FacePose, mouthWidth = REF_MOUTH): HeadMotion => {
   const k = mouthWidth / REF_MOUTH;
   return {
     tilt: pose.tilt * TILT,
@@ -110,12 +102,7 @@ export const headMotion = (
 };
 
 /** Writes the bent vertex positions into `out` (x, y per vertex). */
-export function deform<T extends Float32Array>(
-  mesh: PhotoMesh,
-  controls: Controls,
-  head: HeadMotion,
-  out: T,
-): T {
+export function deform<T extends Float32Array>(mesh: PhotoMesh, controls: Controls, head: HeadMotion, out: T): T {
   out.set(mesh.vertices);
   for (const name of CONTROLS) {
     const v = controls[name];
@@ -154,14 +141,7 @@ export function mouthStrip(mesh: PhotoMesh): {
   const { upper, lower } = mesh.mouth;
   const indices: number[] = [];
   for (let k = 0; k < upper.length - 1; k++) {
-    indices.push(
-      upper[k],
-      lower[k],
-      upper[k + 1],
-      upper[k + 1],
-      lower[k],
-      lower[k + 1],
-    );
+    indices.push(upper[k], lower[k], upper[k + 1], upper[k + 1], lower[k], lower[k + 1]);
   }
   const side = new Map<number, number>();
   for (const i of upper) side.set(i, 0);

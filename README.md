@@ -167,7 +167,7 @@ The frontend is built with webpack (`next dev --webpack` / `next build --webpack
 | `TTS_EN_MALE_VOICE` | `am_michael` | Male English voice (`TTS_EN_MALE_MODEL` defaults to Kokoro). |
 | `TTS_NL_MALE_MODEL` / `TTS_NL_MALE_VOICE` | `speaches-ai/piper-nl_BE-rdh-medium` / `rdh` | Male Dutch voice (Flemish). |
 | `TTS_*_BASE_URL` | `SPEACHES_URL` | Send one language (and gender, `TTS_*_MALE_BASE_URL`) to a different OpenAI-compatible TTS server. |
-| `KOKORO_URL` | unset (compose: `http://kokoro:8880`) | Kokoro-FastAPI for the premium avatar's word-timed lip-sync. Unset: premium behaves like *Voice and avatar, female*. |
+| `KOKORO_URL` | unset (compose: `http://kokoro:8880`) | Kokoro-FastAPI for the premium avatar's word-timed lip-sync. Unset: premium uses the regular female voice and loudness lip-sync. |
 | `DEFAULT_VOICE` | `female` | `off`, `female` or `male`: the voice until the user picks one in the browser. |
 | `DEFAULT_LANGUAGE` | `en` | Used when the browser sends no language. |
 
@@ -247,3 +247,10 @@ docker-compose.yml, docker-compose.prod.yml, .env.example
 - **Language detection.** The language comes from the selector. Automatic detection is not implemented yet.
 - **Licenses.** TalkingHead (its English lip-sync rules) is MIT, Kokoro is Apache-2.0, and the Piper voices each
   have their own license (see their model cards).
+- **Avatar photos.** Both avatar photos are by [Vitaly Gariev](https://unsplash.com/@silverkblack) on
+  [Unsplash](https://unsplash.com), used (cropped and animated) under the
+  [Unsplash License](https://unsplash.com/license):
+  [man](https://unsplash.com/photos/man-in-suit-smiling-in-front-of-modern-building-7H-q-K0soEI) and
+  [woman](https://unsplash.com/photos/a-woman-in-glasses-stands-with-arms-crossed-outdoors-J_9U-jTWGIw). See
+  `frontend/public/avatars/CREDITS.md`. They show real people, and Unsplash photos come without a model release, so
+  the photo avatars carry a small "AI avatar" label.

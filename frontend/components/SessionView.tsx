@@ -343,6 +343,7 @@ export function SessionView({
                   key={gender}
                   gender={gender}
                   label={gender === 'female' ? strings.avatarFemale : strings.avatarMale}
+                  aiLabel={strings.aiAvatar}
                   busy={switchingVoice}
                   busyLabel={strings.switchingVoice}
                   className="h-[50vh] min-h-[240px]"
