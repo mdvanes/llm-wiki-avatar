@@ -12,14 +12,14 @@ import { useConversationRecorder } from '@/hooks/useConversationRecorder';
 import { useWikiStreams } from '@/hooks/useWikiStreams';
 import { type Conversation, mergeEntries, restorePayload } from '@/lib/history';
 import type { Language, Strings } from '@/lib/language';
-import { type Presentation, avatarOf, voiceOf } from '@/lib/presentation';
+import { type Presentation, avatarOf, lipsyncOf, voiceOf } from '@/lib/presentation';
 import { stopTarget, withFullReplies } from '@/lib/reply';
-import type { AvatarSettings } from '@/lib/server-config';
 import {
   type InputMode,
   RPC_RESTORE_HISTORY,
   RPC_SET_INPUT_MODE,
   RPC_SET_LANGUAGE,
+  RPC_SET_LIPSYNC,
   RPC_SET_VOICE,
   RPC_STOP_SPEAKING,
   SPEECH_STATE_ATTRIBUTE,
@@ -27,6 +27,7 @@ import {
 } from '@/lib/protocol';
 import { type Phase, TRANSCRIPT_GRACE_MS, conversationPhase, holdsPrevious } from '@/lib/status';
 import { AnswerCard } from './AnswerCard';
+import { CartoonAvatar } from './CartoonAvatar';
 import { ConversationStatus, phaseLabel } from './ConversationStatus';
 import { InputModeSelector } from './InputModeSelector';
 import { LanguageSelector } from './LanguageSelector';
@@ -36,11 +37,9 @@ import { PageViewer, type PageRef } from './PageViewer';
 import { PresentationSelector } from './PresentationSelector';
 import { SpinnerOverlay } from './Spinner';
 import { SourceChips } from './SourceChips';
-import { TalkingHeadAvatar } from './TalkingHeadAvatar';
 import { Transcript, toTranscriptEntry } from './Transcript';
 
 interface Props {
-  avatar: AvatarSettings;
   strings: Strings;
   language: Language;
   onLanguageChange: (language: Language) => void;
@@ -108,7 +107,6 @@ function useSettledPhase(phase: Phase): Phase {
 }
 
 export function SessionView({
-  avatar,
   strings,
   language,
   onLanguageChange,
@@ -131,8 +129,6 @@ export function SessionView({
   const [switching, setSwitching] = useState(false);
   /** The voice is being switched on the agent. */
   const [switchingVoice, setSwitchingVoice] = useState(false);
-  /** Set after the first switch, so a newly loading avatar says "switching" rather than "loading". */
-  const [switched, setSwitched] = useState(false);
   /** Set when the user stopped the voice, until the agent has stopped speaking. */
   const [silenced, setSilenced] = useState(false);
 
@@ -226,13 +222,31 @@ export function SessionView({
     if (next === presentation) return;
     const previous = presentation;
     onPresentationChange(next);
-    setSwitched(true);
-    if (voiceOf(next) === voiceOf(previous) || !agent.identity) return;
+    if (!agent.identity) return;
+    const lipsyncChanged = lipsyncOf(next) !== lipsyncOf(previous);
+    const setLipsync = () =>
+      localParticipant.performRpc({
+        destinationIdentity: agent.identity,
+        method: RPC_SET_LIPSYNC,
+        payload: lipsyncOf(next),
+      });
+    if (voiceOf(next) === voiceOf(previous)) {
+      if (!lipsyncChanged) return;
+      // Same voice: the lip-sync takes over from the next sentence, no need to stop.
+      try {
+        await setLipsync();
+      } catch (err) {
+        console.error('set_lipsync failed', err);
+        onPresentationChange(previous);
+      }
+      return;
+    }
     setSwitchingVoice(true);
     const started = Date.now();
     try {
       // Stop the current reply rather than switching voices halfway; its text still arrives in full.
       if (speaking && !silenced) await stopSpeaking();
+      if (lipsyncChanged) await setLipsync();
       await localParticipant.performRpc({
         destinationIdentity: agent.identity,
         method: RPC_SET_VOICE,
@@ -325,12 +339,10 @@ export function SessionView({
           <div className="flex shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-panel">
             <div className="relative">
               {gender ? (
-                <TalkingHeadAvatar
+                <CartoonAvatar
                   key={gender}
-                  avatar={{ ...avatar, ...avatar.models[gender] }}
                   gender={gender}
-                  strings={strings}
-                  loadingLabel={switched ? strings.switchingVoice : strings.loadingAvatar}
+                  label={gender === 'female' ? strings.avatarFemale : strings.avatarMale}
                   busy={switchingVoice}
                   busyLabel={strings.switchingVoice}
                   className="h-[50vh] min-h-[240px]"
@@ -338,6 +350,7 @@ export function SessionView({
                   agentState={agent.state}
                   mood={mood}
                   silenced={silenced}
+                  lipsync={lipsyncOf(presentation)}
                 />
               ) : (
                 <VoicePanel

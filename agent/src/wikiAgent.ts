@@ -2,7 +2,7 @@ import { type FlushSentinel, llm, log, stt, voice } from '@livekit/agents';
 import type * as openai from '@livekit/agents-plugin-openai';
 import type { AudioFrame } from '@livekit/rtc-node';
 import { ReadableStream, TransformStream } from 'node:stream/web';
-import type { Config, Language, Voice } from './config.ts';
+import type { Config, Language, Lipsync, Voice } from './config.ts';
 import { type HistoryTurn, withRestoredHistory } from './history.ts';
 import type { SttTap } from './inputMode.ts';
 import type { LanguageProfile } from './language.ts';
@@ -40,6 +40,8 @@ export interface WikiAgentOptions {
   voice?: Voice;
   /** The session's audio output; turned off for the `off` voice. */
   audioOutput?: AudioOutputSwitch;
+  /** `words`: use the voice with word timings where available (premium avatar). Defaults to `audio`. */
+  lipsync?: Lipsync;
 }
 
 /** The part of the session output that turns speech on and off (`session.output`). */
@@ -77,6 +79,7 @@ export class WikiAgent extends voice.Agent {
   readonly #sources: SourceTracker;
   #language: Language;
   #voice: Voice;
+  #lipsync: Lipsync;
   #lastUserMessageId: string | undefined;
   /** Text of the reply currently being generated or spoken. */
   #reply: ReplyCapture | undefined;
@@ -91,6 +94,7 @@ export class WikiAgent extends voice.Agent {
     this.#sources = sources;
     this.#language = opts.language;
     this.#voice = opts.voice ?? 'female';
+    this.#lipsync = opts.lipsync ?? 'audio';
     this.#applySpeechSettings();
   }
 
@@ -107,6 +111,10 @@ export class WikiAgent extends voice.Agent {
 
   get voice(): Voice {
     return this.#voice;
+  }
+
+  get lipsync(): Lipsync {
+    return this.#lipsync;
   }
 
   get profile(): LanguageProfile {
@@ -133,6 +141,16 @@ export class WikiAgent extends voice.Agent {
   setVoice(voice: Voice): void {
     if (voice === this.#voice) return;
     this.#voice = voice;
+    this.#applySpeechSettings();
+  }
+
+  /**
+   * `words` asks for the voice with word timings (English female only), whose timings drive the premium avatar's
+   * lip-sync; elsewhere the regular voice is used. Takes effect from the next sentence.
+   */
+  setLipsync(lipsync: Lipsync): void {
+    if (lipsync === this.#lipsync) return;
+    this.#lipsync = lipsync;
     this.#applySpeechSettings();
   }
 
@@ -196,7 +214,9 @@ export class WikiAgent extends voice.Agent {
     this.#opts.stt?.updateOptions({ language: profile.whisperLanguage, prompt: this.#opts.sttPrompt });
     this.#opts.audioOutput?.setAudioEnabled(this.#voice !== 'off');
     // Keep the TTS on a real voice even when off, so turning speech back on needs no extra step.
-    this.#opts.tts?.updateOptions(profile.voices[this.#voice === 'off' ? 'female' : this.#voice]);
+    const gender = this.#voice === 'off' ? 'female' : this.#voice;
+    const wordTimed = this.#lipsync === 'words' && gender === 'female' ? profile.wordTimedVoice : undefined;
+    this.#opts.tts?.setVoice(wordTimed ?? profile.voices[gender]);
   }
 
   /**

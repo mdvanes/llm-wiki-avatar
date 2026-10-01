@@ -20,6 +20,8 @@ export function presentationLabel(presentation: Presentation, strings: Strings):
       return strings.voiceMale;
     case 'avatar-female':
       return strings.avatarFemale;
+    case 'avatar-female-premium':
+      return strings.avatarFemalePremium;
     case 'avatar-male':
       return strings.avatarMale;
   }

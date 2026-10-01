@@ -18,6 +18,10 @@ export const VOICES = ['off', 'female', 'male'] as const;
 export type Voice = (typeof VOICES)[number];
 export type VoiceGender = Exclude<Voice, 'off'>;
 
+/** How the avatar's mouth follows the voice: `audio` (loudness) or `words` (word timings from the TTS, premium). */
+export const LIPSYNCS = ['audio', 'words'] as const;
+export type Lipsync = (typeof LIPSYNCS)[number];
+
 const bool = z
   .enum(['true', 'false', '1', '0', 'yes', 'no'])
   .transform((v) => v === 'true' || v === '1' || v === 'yes');
@@ -67,6 +71,11 @@ const schema = z.object({
   TTS_NL_MALE_MODEL: z.string().default('speaches-ai/piper-nl_BE-rdh-medium'),
   TTS_NL_MALE_VOICE: z.string().default('rdh'),
   TTS_SPEED: z.coerce.number().min(0.5).max(2).default(1),
+  /**
+   * Kokoro-FastAPI (e.g. `http://localhost:8880`), for the premium avatar: English female voice `af_heart` with word
+   * timings for lip-sync. Without it the premium avatar uses the regular voice and loudness lip-sync.
+   */
+  KOKORO_URL: z.string().optional(),
 
   DEFAULT_LANGUAGE: z.enum(SUPPORTED_LANGUAGES).default('en'),
   /** Used when the browser does not send a voice. */
@@ -89,6 +98,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 
 export function isVoice(value: unknown): value is Voice {
   return typeof value === 'string' && (VOICES as readonly string[]).includes(value);
+}
+
+export function isLipsync(value: unknown): value is Lipsync {
+  return typeof value === 'string' && (LIPSYNCS as readonly string[]).includes(value);
 }
 
 export function isLanguage(value: unknown): value is Language {

@@ -2,7 +2,7 @@ import { type JobContext, ServerOptions, cli, defineAgent, inference, log, voice
 import * as openai from '@livekit/agents-plugin-openai';
 import type { ReadableStream } from 'node:stream/web';
 import { fileURLToPath } from 'node:url';
-import { type Config, type Language, type Voice, isLanguage, isVoice, loadConfig } from './config.ts';
+import { type Config, type Language, type Voice, isLanguage, isLipsync, isVoice, loadConfig } from './config.ts';
 import { parseHistoryPayload } from './history.ts';
 import { InputModeController, SttTap, isInputMode } from './inputMode.ts';
 import { languageProfiles } from './language.ts';
@@ -14,6 +14,7 @@ import {
   RPC_RESTORE_HISTORY,
   RPC_SET_INPUT_MODE,
   RPC_SET_LANGUAGE,
+  RPC_SET_LIPSYNC,
   RPC_SET_VOICE,
   RPC_STOP_SPEAKING,
   RoomPublisher,
@@ -31,6 +32,8 @@ export const LANGUAGE_ATTRIBUTE = 'language';
 export const INPUT_MODE_ATTRIBUTE = 'input_mode';
 /** Participant attribute for the voice: `off` (text replies only), `female` or `male`. */
 export const VOICE_ATTRIBUTE = 'voice';
+/** Participant attribute for the lip-sync: `audio` or `words` (premium avatar). */
+export const LIPSYNC_ATTRIBUTE = 'lipsync';
 /** Set on the agent participant: `hearing`, `transcribing` or `idle` (see SttTap). */
 export const SPEECH_STATE_ATTRIBUTE = 'speech_state';
 
@@ -84,8 +87,14 @@ export default defineAgent({
       language: initial.whisperLanguage,
       ...(sttPrompt ? { prompt: sttPrompt } : {}),
     });
+    const publisher = new RoomPublisher(ctx.room, (err) => logger.warn({ err }, 'failed to publish to room'));
     // WikiAgent switches to the configured voice.
-    const tts = new SpeachesTTS({ ...initial.voices.female, apiKey: cfg.SPEACHES_API_KEY, speed: cfg.TTS_SPEED });
+    const tts = new SpeachesTTS({
+      ...initial.voices.female,
+      apiKey: cfg.SPEACHES_API_KEY,
+      speed: cfg.TTS_SPEED,
+      onWords: (segment) => publisher.words(segment),
+    });
 
     // Pin the local model: without a version, dev mode picks the cloud turn detector.
     const turnDetector = new inference.TurnDetector({ version: 'v1-mini' });
@@ -110,7 +119,6 @@ export default defineAgent({
 
     const sttTap = new SttTap();
     sttTap.trackRecognition(stt);
-    const publisher = new RoomPublisher(ctx.room, (err) => logger.warn({ err }, 'failed to publish to room'));
     const agent = new WikiAgent({
       wiki,
       cfg,
@@ -159,6 +167,14 @@ export default defineAgent({
       return requested;
     });
 
+    ctx.room.localParticipant?.registerRpcMethod(RPC_SET_LIPSYNC, async ({ payload }) => {
+      const requested = payload.trim().toLowerCase();
+      if (!isLipsync(requested)) throw new Error(`unsupported lipsync "${payload}"`);
+      agent.setLipsync(requested);
+      logger.info({ lipsync: requested }, 'lipsync changed');
+      return requested;
+    });
+
     let publishedSpeechState = '';
     const publishSpeechState = () => {
       const state = sttTap.state;
@@ -204,6 +220,8 @@ export default defineAgent({
     const requestedVoice = participant.attributes[VOICE_ATTRIBUTE]?.toLowerCase();
     const initialVoice: Voice = isVoice(requestedVoice) ? requestedVoice : cfg.DEFAULT_VOICE;
     agent.setVoice(initialVoice);
+    const requestedLipsync = participant.attributes[LIPSYNC_ATTRIBUTE]?.toLowerCase();
+    if (isLipsync(requestedLipsync)) agent.setLipsync(requestedLipsync);
     const requested = participant.attributes[LANGUAGE_ATTRIBUTE]?.toLowerCase();
     const language: Language = isLanguage(requested) ? requested : cfg.DEFAULT_LANGUAGE;
     await agent.setLanguage(language, { announce: false });

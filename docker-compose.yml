@@ -93,6 +93,7 @@ services:
       TTS_EN_MALE_VOICE: ${TTS_EN_MALE_VOICE:-am_michael}
       TTS_NL_MALE_MODEL: ${TTS_NL_MALE_MODEL:-speaches-ai/piper-nl_BE-rdh-medium}
       TTS_NL_MALE_VOICE: ${TTS_NL_MALE_VOICE:-rdh}
+      KOKORO_URL: ${KOKORO_URL_DOCKER:-http://kokoro:8880}
       DEFAULT_VOICE: ${DEFAULT_VOICE:-female}
       DEFAULT_LANGUAGE: ${DEFAULT_LANGUAGE:-en}
     volumes:
@@ -116,22 +117,22 @@ services:
       LIVEKIT_API_SECRET: secret
       AGENT_NAME: ${AGENT_NAME:-llm-wiki-avatar}
       WIKI_DIR: /wiki
-      # Avatars fetched into frontend/public/avatars before the build are part of the image.
-      AVATAR_FEMALE_URL: ${AVATAR_FEMALE_URL:-}
-      AVATAR_MALE_URL: ${AVATAR_MALE_URL:-}
-      # Older single-avatar settings; AVATAR_URL fills the female slot, or the male one with AVATAR_BODY=M.
-      AVATAR_URL: ${AVATAR_URL:-}
-      AVATAR_BODY: ${AVATAR_BODY:-}
       DEFAULT_VOICE: ${DEFAULT_VOICE:-female}
-      AVATAR_VIEW: ${AVATAR_VIEW:-head}
-      AVATAR_CAMERA_DISTANCE: ${AVATAR_CAMERA_DISTANCE:-0}
-      AVATAR_CAMERA_Y: ${AVATAR_CAMERA_Y:-}
     volumes:
       - ${WIKI_PATH:-./sample-wiki}:/wiki:ro
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     depends_on:
       - livekit
+    restart: unless-stopped
+
+  # Word-timed lip-sync for "Voice and avatar, female (premium)": docker compose --profile premium up.
+  # Without it, the premium option falls back to the regular voice and loudness lip-sync.
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    profiles: [premium]
+    ports:
+      - "8880:8880"
     restart: unless-stopped
 
   ollama:

@@ -8,6 +8,7 @@ export const TOPICS = {
   sources: 'wiki.sources',
   language: 'wiki.language',
   reply: 'wiki.reply',
+  words: 'wiki.words',
 } as const;
 
 /** Attribute on a `wiki.reply` stream: the transcript message the full reply belongs to. */
@@ -17,6 +18,8 @@ export const RPC_SET_LANGUAGE = 'set_language';
 export const RPC_SET_INPUT_MODE = 'set_input_mode';
 /** Payload: `off`, `female` or `male`. */
 export const RPC_SET_VOICE = 'set_voice';
+/** Payload: `audio` or `words` (see Lipsync). */
+export const RPC_SET_LIPSYNC = 'set_lipsync';
 export const RPC_PTT_START = 'ptt_start';
 export const RPC_PTT_END = 'ptt_end';
 export const RPC_PTT_CANCEL = 'ptt_cancel';
@@ -41,6 +44,24 @@ export interface SourcesUpdate {
   sources: Source[];
 }
 
+/** A spoken word; times in ms from the start of its segment's audio. */
+export interface WordTiming {
+  w: string;
+  s: number;
+  e: number;
+}
+
+/**
+ * Word timings for one TTS segment (usually a sentence), sent in pieces as the audio is synthesized. The last piece
+ * has `final: true` and the segment's audio length.
+ */
+export interface WordSegment {
+  id: string;
+  words: WordTiming[];
+  final: boolean;
+  durationMs?: number;
+}
+
 /** Streams text to the UI piece by piece. */
 export interface TextWriter {
   write(text: string): void;
@@ -55,6 +76,8 @@ export interface Publisher {
   language(code: string): void;
   /** The complete text of a reply whose speech was stopped; replaces the truncated transcript message. */
   fullReply(target: string): TextWriter;
+  /** Word timings for the avatar's lip-sync. */
+  words(segment: WordSegment): void;
 }
 
 export class RoomPublisher implements Publisher {
@@ -87,6 +110,10 @@ export class RoomPublisher implements Publisher {
 
   language(code: string): void {
     this.#send(TOPICS.language, code);
+  }
+
+  words(segment: WordSegment): void {
+    this.#send(TOPICS.words, segment);
   }
 
   fullReply(target: string): TextWriter {
@@ -131,6 +158,10 @@ export class RecordingPublisher implements Publisher {
 
   language(code: string): void {
     this.events.push({ topic: TOPICS.language, payload: code });
+  }
+
+  words(segment: WordSegment): void {
+    this.events.push({ topic: TOPICS.words, payload: segment });
   }
 
   fullReply(target: string): TextWriter {

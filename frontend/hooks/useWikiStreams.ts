@@ -2,7 +2,7 @@
 
 import { useTextStream } from '@livekit/components-react';
 import { useMemo } from 'react';
-import type { MoodEvent } from '@/components/TalkingHeadAvatar';
+import type { MoodEvent } from '@/components/CartoonAvatar';
 import { isLanguage, type Language } from '@/lib/language';
 import {
   type Answer,

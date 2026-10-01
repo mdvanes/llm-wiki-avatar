@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../src/config.ts';
 import { languageProfiles } from '../src/language.ts';
 import { RecordingPublisher, TOPICS } from '../src/publisher.ts';
-import { SpeachesTTS } from '../src/speachesTts.ts';
+import { SpeachesTTS, captionedSpeechURL, toWordTimings } from '../src/speachesTts.ts';
 import { WikiAgent } from '../src/wikiAgent.ts';
 import { Wiki } from '../src/wiki/wiki.ts';
 import { SAMPLE_WIKI } from './helpers.ts';
@@ -20,6 +20,21 @@ const server = createServer((req, res) => {
   req.on('end', () => {
     const body = JSON.parse(raw) as Record<string, unknown>;
     requests.push({ url: req.url ?? '', auth: req.headers.authorization, body });
+    if (req.url === '/dev/captioned_speech') {
+      // Kokoro-FastAPI: newline-delimited JSON, base64 PCM (0.1 s + 0.15 s) and cumulative word timestamps.
+      const chunk = (seconds: number, timestamps: unknown[]) =>
+        `${JSON.stringify({ audio: Buffer.alloc(24000 * 2 * seconds).toString('base64'), audio_format: 'pcm', timestamps })}\n`;
+      const all =
+        chunk(0.1, [
+          { word: 'Hello', start_time: 0.0125, end_time: 0.05 },
+          { word: ',', start_time: 0.05, end_time: 0.06 },
+        ]) + chunk(0.15, [{ word: 'there', start_time: 0.1, end_time: 0.2 }]);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      // Split mid-line to exercise line buffering.
+      res.write(all.slice(0, 50));
+      res.end(all.slice(50));
+      return;
+    }
     if (body.voice === 'broken') {
       res.writeHead(404).end('voice not found');
       return;
@@ -74,6 +89,107 @@ describe('SpeachesTTS', () => {
     for await (const ev of stream) frames.push(ev);
     expect(frames).toEqual([]);
     expect(errors.map((e) => e.message)).toEqual([expect.stringMatching(/404: voice not found/)]);
+  });
+});
+
+describe('SpeachesTTS with word timings', () => {
+  it('builds the captioned speech URL with or without /v1', () => {
+    expect(captionedSpeechURL('http://kokoro:8880/v1/')).toBe('http://kokoro:8880/dev/captioned_speech');
+    expect(captionedSpeechURL('http://kokoro:8880')).toBe('http://kokoro:8880/dev/captioned_speech');
+  });
+
+  it('drops punctuation and converts to ms', () => {
+    expect(
+      toWordTimings([
+        { word: 'Hi', start_time: 0.0224, end_time: 0.3726 },
+        { word: '.', start_time: 0.37, end_time: 0.4 },
+        { word: "it's", start_time: 0.4, end_time: 0.5 },
+      ]),
+    ).toEqual([
+      { w: 'Hi', s: 22, e: 373 },
+      { w: "it's", s: 400, e: 500 },
+    ]);
+    expect(toWordTimings(null)).toEqual([]);
+  });
+
+  it('streams audio and word timings from Kokoro-FastAPI', async () => {
+    const segments: unknown[] = [];
+    const tts = new SpeachesTTS({
+      baseURL: `${baseURL}`,
+      model: 'kokoro',
+      voice: 'af_heart',
+      wordTimings: true,
+      onWords: (s) => segments.push(s),
+    });
+    const frames = [];
+    for await (const ev of tts.synthesize('Hello, there')) frames.push(ev);
+    expect(requests.at(-1)).toMatchObject({
+      url: '/dev/captioned_speech',
+      body: { model: 'kokoro', voice: 'af_heart', input: 'Hello, there', response_format: 'pcm', stream: true, return_timestamps: true },
+    });
+    expect(frames.reduce((n, ev) => n + ev.frame.samplesPerChannel, 0)).toBe(6000);
+    expect(frames.at(-1)?.final).toBe(true);
+    const id = frames[0]!.segmentId;
+    expect(segments).toEqual([
+      { id, words: [{ w: 'Hello', s: 13, e: 50 }], final: false },
+      { id, words: [{ w: 'there', s: 100, e: 200 }], final: false },
+      { id, words: [], final: true, durationMs: 250 },
+    ]);
+  });
+
+  it('falls back to the regular voice when Kokoro-FastAPI is unreachable', async () => {
+    const segments: unknown[] = [];
+    const tts = new SpeachesTTS({
+      baseURL: 'http://127.0.0.1:9/v1',
+      model: 'kokoro',
+      voice: 'af_heart',
+      wordTimings: true,
+      fallback: { baseURL, model: 'speaches-kokoro', voice: 'af_heart' },
+      onWords: (s) => segments.push(s),
+    });
+    const frames = [];
+    for await (const ev of tts.synthesize('Hello')) frames.push(ev);
+    expect(requests.at(-1)).toMatchObject({ url: '/v1/audio/speech', body: { model: 'speaches-kokoro' } });
+    expect(frames.reduce((n, ev) => n + ev.frame.samplesPerChannel, 0)).toBe(6000);
+    expect(segments).toEqual([]);
+  });
+});
+
+describe('WikiAgent.setLipsync', () => {
+  async function setup(env: Record<string, string> = { KOKORO_URL: 'http://kokoro:8880' }) {
+    const cfg = loadConfig({ WIKI_DIR: SAMPLE_WIKI, SPEACHES_URL: baseURL, ...env });
+    const wiki = await Wiki.open(SAMPLE_WIKI);
+    const profiles = languageProfiles(cfg);
+    const tts = new SpeachesTTS(profiles.en.voices.female);
+    const agent = new WikiAgent({ wiki, cfg, publisher: new RecordingPublisher(), profiles, language: 'en', tts });
+    return { agent, tts, profiles };
+  }
+
+  it('uses Kokoro-FastAPI for the English female voice only', async () => {
+    const { agent, tts, profiles } = await setup();
+    agent.setLipsync('words');
+    expect(tts.voice).toEqual({
+      baseURL: 'http://kokoro:8880',
+      model: 'kokoro',
+      voice: 'af_heart',
+      wordTimings: true,
+      fallback: profiles.en.voices.female,
+    });
+    agent.setVoice('male');
+    expect(tts.voice).toEqual(profiles.en.voices.male);
+    agent.setVoice('female');
+    await agent.setLanguage('nl', { announce: false });
+    expect(tts.voice).toEqual(profiles.nl.voices.female);
+    await agent.setLanguage('en', { announce: false });
+    expect(tts.voice.wordTimings).toBe(true);
+    agent.setLipsync('audio');
+    expect(tts.voice).toEqual(profiles.en.voices.female);
+  });
+
+  it('keeps the regular voice without KOKORO_URL', async () => {
+    const { agent, tts, profiles } = await setup({});
+    agent.setLipsync('words');
+    expect(tts.voice).toEqual(profiles.en.voices.female);
   });
 });
 

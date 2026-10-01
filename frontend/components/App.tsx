@@ -5,9 +5,8 @@ import { TokenSource } from 'livekit-client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type Conversation, clearHistory, deleteConversation, loadHistory, saveConversation } from '@/lib/history';
 import { type Language, STRINGS, loadInputMode, loadLanguage, saveInputMode, saveLanguage } from '@/lib/language';
-import { type Presentation, loadPresentation, savePresentation, voiceOf } from '@/lib/presentation';
-import type { AvatarSettings } from '@/lib/server-config';
-import { INPUT_MODE_ATTRIBUTE, type InputMode, LANGUAGE_ATTRIBUTE, VOICE_ATTRIBUTE } from '@/lib/protocol';
+import { type Presentation, lipsyncOf, loadPresentation, savePresentation, voiceOf } from '@/lib/presentation';
+import { INPUT_MODE_ATTRIBUTE, type InputMode, LANGUAGE_ATTRIBUTE, LIPSYNC_ATTRIBUTE, VOICE_ATTRIBUTE } from '@/lib/protocol';
 import { ConversationViewer } from './ConversationViewer';
 import { HistorySidebar } from './HistorySidebar';
 import { SessionView } from './SessionView';
@@ -16,10 +15,10 @@ import { WelcomeView } from './WelcomeView';
 const tokenSource = TokenSource.endpoint('/api/token');
 const SIDEBAR_KEY = 'llm-wiki-avatar.historySidebar';
 
-export function App({ avatar }: { avatar: AvatarSettings }) {
+export function App({ defaultPresentation }: { defaultPresentation: Presentation }) {
   const [language, setLanguage] = useState<Language>('en');
   const [inputMode, setInputMode] = useState<InputMode>('always');
-  const [presentation, setPresentation] = useState<Presentation>(avatar.defaultPresentation);
+  const [presentation, setPresentation] = useState<Presentation>(defaultPresentation);
   const [error, setError] = useState<string>();
   const [starting, setStarting] = useState(false);
   const [history, setHistory] = useState<Conversation[]>([]);
@@ -31,7 +30,7 @@ export function App({ avatar }: { avatar: AvatarSettings }) {
   useEffect(() => {
     setLanguage(loadLanguage());
     setInputMode(loadInputMode());
-    setPresentation(loadPresentation(avatar.defaultPresentation));
+    setPresentation(loadPresentation(defaultPresentation));
     setHistory(loadHistory());
     const stored = window.localStorage.getItem(SIDEBAR_KEY);
     setSidebarOpen(stored ? stored === 'open' : window.innerWidth >= 768);
@@ -64,15 +63,17 @@ export function App({ avatar }: { avatar: AvatarSettings }) {
 
   // The token route puts these on the participant, so the agent starts in the right language, mic mode and voice.
   const voice = voiceOf(presentation);
+  const lipsync = lipsyncOf(presentation);
   const options = useMemo(
     () => ({
       participantAttributes: {
         [LANGUAGE_ATTRIBUTE]: language,
         [INPUT_MODE_ATTRIBUTE]: inputMode,
         [VOICE_ATTRIBUTE]: voice,
+        [LIPSYNC_ATTRIBUTE]: lipsync,
       },
     }),
-    [language, inputMode, voice],
+    [language, inputMode, voice, lipsync],
   );
   const session = useSession(tokenSource, options);
   const strings = STRINGS[language];
@@ -121,7 +122,6 @@ export function App({ avatar }: { avatar: AvatarSettings }) {
         <div className="h-full min-w-0 flex-1">
           {session.isConnected ? (
             <SessionView
-              avatar={avatar}
               strings={strings}
               language={language}
               onLanguageChange={changeLanguage}
