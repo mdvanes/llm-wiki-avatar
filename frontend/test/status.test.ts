@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { toSpeechState } from '@/lib/protocol';
 import { conversationPhase, holdsPrevious, isProcessing } from '@/lib/status';
 
 describe('conversationPhase', () => {
@@ -21,14 +20,6 @@ describe('conversationPhase', () => {
     expect(isProcessing('transcribing')).toBe(true);
     expect(isProcessing('thinking')).toBe(true);
     expect(isProcessing('hearing')).toBe(false);
-  });
-});
-
-describe('toSpeechState', () => {
-  it('maps unknown or missing values to idle', () => {
-    expect(toSpeechState(undefined)).toBe('idle');
-    expect(toSpeechState('weird')).toBe('idle');
-    expect(toSpeechState('transcribing')).toBe('transcribing');
   });
 });
 

@@ -24,10 +24,9 @@ function deps() {
 
 describe('config and language profiles', () => {
   it('has sensible defaults and ignores empty values', () => {
-    const c = loadConfig({ LLM_MODEL: '', DEFAULT_LANGUAGE: 'nl', STT_FUZZY_CORRECTION: 'false' });
+    const c = loadConfig({ LLM_MODEL: '', DEFAULT_LANGUAGE: 'nl' });
     expect(c.LLM_MODEL).toBe('qwen3:4b-instruct');
     expect(c.DEFAULT_LANGUAGE).toBe('nl');
-    expect(c.STT_FUZZY_CORRECTION).toBe(false);
   });
 
   it('parses one or more ordered wiki sources relative to the repo root', () => {
@@ -55,7 +54,6 @@ describe('config and language profiles', () => {
       model: 'speaches-ai/piper-nl_BE-nathalie-medium',
       voice: 'nathalie',
     });
-    expect(profiles.nl.whisperLanguage).toBe('nl');
   });
 
   it('has male voices per language, with their own server override', () => {

@@ -1,15 +1,12 @@
 'use client';
 
-import { useLocalParticipant, useTrackVolume } from '@livekit/components-react';
-import type { LocalAudioTrack } from 'livekit-client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTrackVolume } from '@livekit/components-react';
+import { useEffect } from 'react';
+import type { PushToTalk } from '@/hooks/usePushToTalk';
 import type { Strings } from '@/lib/language';
-import { type InputMode, RPC_PTT_CANCEL, RPC_PTT_END, RPC_PTT_START } from '@/lib/protocol';
 
 /** Mic level (0–1) from which the input counts as speech rather than room noise. */
 export const SPEECH_LEVEL = 0.04;
-/** Keep sending audio briefly after release so the last word is not cut off. */
-const RELEASE_TAIL_MS = 250;
 
 /** Size of the ring around the mic button for a mic level; 0 below the speech threshold. */
 export function ringSize(level: number): number {
@@ -18,8 +15,7 @@ export function ringSize(level: number): number {
 }
 
 interface Props {
-  mode: InputMode;
-  agentIdentity?: string;
+  ptt: PushToTalk;
   strings: Strings;
 }
 
@@ -37,69 +33,17 @@ function MicIcon({ muted }: { muted: boolean }) {
   );
 }
 
-/**
- * Microphone button. Always-on mode: click to mute/unmute. Push-to-talk: hold the button (or Space) while talking.
- * A ring around the button follows the microphone level while speech is picked up.
- */
-export function MicButton({ mode, agentIdentity, strings }: Props) {
-  const { localParticipant, isMicrophoneEnabled, microphoneTrack } = useLocalParticipant();
-  const level = useTrackVolume(microphoneTrack?.track as LocalAudioTrack | undefined);
-  const [held, setHeld] = useState(false);
-  const heldRef = useRef(false);
-
-  const rpc = useCallback(
-    (method: string) => {
-      if (!agentIdentity) return Promise.resolve('');
-      return localParticipant.performRpc({
-        destinationIdentity: agentIdentity,
-        method,
-        payload: '',
-        responseTimeout: 30_000,
-      });
-    },
-    [agentIdentity, localParticipant],
-  );
-
-  const press = useCallback(() => {
-    if (heldRef.current) return;
-    heldRef.current = true;
-    setHeld(true);
-    Promise.all([localParticipant.setMicrophoneEnabled(true), rpc(RPC_PTT_START)]).catch((err) =>
-      console.error('push-to-talk start failed', err),
-    );
-  }, [localParticipant, rpc]);
-
-  const release = useCallback(
-    (send: boolean) => {
-      if (!heldRef.current) return;
-      heldRef.current = false;
-      setHeld(false);
-      setTimeout(() => {
-        localParticipant
-          .setMicrophoneEnabled(false)
-          .then(() => rpc(send ? RPC_PTT_END : RPC_PTT_CANCEL))
-          .catch((err) => console.error('push-to-talk end failed', err));
-      }, RELEASE_TAIL_MS);
-    },
-    [localParticipant, rpc],
-  );
-
-  // Push-to-talk: the mic stays off between turns. Always-on: it comes back on when switching modes.
+/** Hold Space to talk, unless the user is typing. */
+function usePushToTalkKey({ press, release }: PushToTalk, enabled: boolean) {
   useEffect(() => {
-    if (heldRef.current) return;
-    localParticipant.setMicrophoneEnabled(mode === 'always').catch(() => {});
-  }, [mode, localParticipant]);
-
-  // Hold Space to talk, unless the user is typing.
-  useEffect(() => {
-    if (mode !== 'ptt') return;
+    if (!enabled) return;
     const down = (e: KeyboardEvent) => {
       if (e.code !== 'Space' || e.repeat || isTyping(e.target)) return;
       e.preventDefault();
       press();
     };
     const up = (e: KeyboardEvent) => {
-      if (e.code !== 'Space' || !heldRef.current) return;
+      if (e.code !== 'Space') return;
       e.preventDefault();
       release(true);
     };
@@ -113,52 +57,74 @@ export function MicButton({ mode, agentIdentity, strings }: Props) {
       window.removeEventListener('blur', blur);
       release(false);
     };
-  }, [mode, press, release]);
+  }, [enabled, press, release]);
+}
 
-  const live = mode === 'ptt' ? held : isMicrophoneEnabled;
-  const ring = live ? ringSize(level) : 0;
-  const title = mode === 'ptt' ? (held ? strings.talking : strings.holdToTalk) : isMicrophoneEnabled ? strings.mute : strings.unmute;
+/**
+ * Push-to-talk button: hold it (or Space) while talking; the speech is transcribed in the browser on release.
+ * A ring around the button follows the microphone level. Without a ready speech model it links to the settings.
+ */
+export function MicButton({ ptt, strings }: Props) {
+  const level = useTrackVolume(ptt.track);
+  const { status } = ptt;
+  usePushToTalkKey(ptt, status.kind === 'ready');
+
+  if (status.kind !== 'ready') {
+    const title =
+      status.kind === 'loading'
+        ? strings.loadingSpeechModel
+        : status.kind === 'error'
+          ? strings.speechModelFailed
+          : strings.noSpeechModel;
+    return (
+      <a
+        href="/settings"
+        target="_blank"
+        rel="noopener"
+        title={title}
+        aria-label={title}
+        className={`flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold ${
+          status.kind === 'error'
+            ? 'border-danger text-danger'
+            : 'border-border text-muted hover:border-accent hover:text-accent'
+        }`}
+      >
+        <MicIcon muted={status.kind !== 'loading'} />
+        {status.kind === 'loading' && <span>{Math.round(status.progress * 100)}%</span>}
+      </a>
+    );
+  }
+
+  const ring = ptt.held ? ringSize(level) : 0;
+  const title = ptt.error ? strings.micUnavailable : ptt.held ? strings.talking : strings.holdToTalk;
 
   return (
     <button
       type="button"
       title={title}
       aria-label={title}
-      aria-pressed={live}
+      aria-pressed={ptt.held}
       data-speech={ring > 0 || undefined}
-      onClick={mode === 'always' ? () => void localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled) : undefined}
-      onPointerDown={
-        mode === 'ptt'
-          ? (e) => {
-              if (e.button !== 0) return;
-              e.preventDefault();
-              e.currentTarget.setPointerCapture(e.pointerId);
-              press();
-            }
-          : undefined
-      }
-      onPointerUp={mode === 'ptt' ? () => release(true) : undefined}
-      onPointerCancel={mode === 'ptt' ? () => release(false) : undefined}
-      onContextMenu={mode === 'ptt' ? (e) => e.preventDefault() : undefined}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        ptt.press();
+      }}
+      onPointerUp={() => ptt.release(true)}
+      onPointerCancel={() => ptt.release(false)}
+      onContextMenu={(e) => e.preventDefault()}
       style={{ boxShadow: ring ? `0 0 0 ${ring}px color-mix(in srgb, var(--color-accent) 35%, transparent)` : undefined }}
-      className={`grid shrink-0 touch-none select-none place-items-center rounded-full border transition-[box-shadow,background-color,color] duration-100 ${
-        mode === 'ptt' ? 'h-9 gap-1.5 px-3' : 'size-9'
-      } ${
-        live
-          ? `border-accent ${held ? 'bg-accent text-bg' : 'text-accent'}`
-          : mode === 'ptt'
-            ? 'border-border text-muted hover:border-accent hover:text-accent'
-            : 'border-danger text-danger'
+      className={`flex h-9 shrink-0 touch-none select-none items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-[box-shadow,background-color,color] duration-100 ${
+        ptt.held
+          ? 'border-accent bg-accent text-bg'
+          : ptt.error
+            ? 'border-danger text-danger'
+            : 'border-border text-muted hover:border-accent hover:text-accent'
       }`}
     >
-      {mode === 'ptt' ? (
-        <span className="flex items-center gap-1.5 text-xs font-semibold">
-          <MicIcon muted={false} />
-          <span className="hidden sm:inline">{held ? strings.talking : strings.pushToTalk}</span>
-        </span>
-      ) : (
-        <MicIcon muted={!isMicrophoneEnabled} />
-      )}
+      <MicIcon muted={false} />
+      <span className="hidden sm:inline">{ptt.held ? strings.talking : strings.pushToTalk}</span>
     </button>
   );
 }

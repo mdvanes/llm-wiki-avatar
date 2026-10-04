@@ -13,7 +13,7 @@ dotenv.config({
 export const SUPPORTED_LANGUAGES = ['en', 'nl'] as const;
 export type Language = (typeof SUPPORTED_LANGUAGES)[number];
 
-/** `off`: replies are text only (speech-to-text keeps working). Otherwise the gender of the TTS voice. */
+/** `off`: replies are text only (push-to-talk keeps working). Otherwise the gender of the TTS voice. */
 export const VOICES = ['off', 'female', 'male'] as const;
 export type Voice = (typeof VOICES)[number];
 export type VoiceGender = Exclude<Voice, 'off'>;
@@ -57,7 +57,6 @@ const schema = z.object({
   LIVEKIT_API_SECRET: z.string().default('secret'),
 
   WIKI_SOURCES: z.string().default('[{"id":"wiki","name":"Wiki","path":"sample-wiki"}]'),
-  VOCAB_DIR: z.string().default(resolve(REPO_ROOT, 'vocab')),
   WIKI_CONTEXT_CHARS: z.coerce.number().int().positive().default(1800),
   WIKI_INDEX_MAX_CHARS: z.coerce.number().int().positive().default(4000),
   WIKI_PAGE_MAX_CHARS: z.coerce.number().int().positive().default(6000),
@@ -75,9 +74,7 @@ const schema = z.object({
 
   SPEACHES_URL: z.string().default('http://localhost:8000/v1'),
   SPEACHES_API_KEY: z.string().default('speaches'),
-  STT_MODEL: z.string().default('Systran/faster-whisper-small'),
-  STT_FUZZY_CORRECTION: bool.default(true),
-  /** Request timeout for Speaches STT/TTS calls. */
+  /** Request timeout for Speaches TTS calls. */
   SPEECH_TIMEOUT_S: z.coerce.number().positive().default(30),
 
   TTS_EN_BASE_URL: z.string().optional(),
@@ -124,7 +121,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       ...source,
       path: resolve(REPO_ROOT, source.path),
     })),
-    VOCAB_DIR: resolve(REPO_ROOT, cfg.VOCAB_DIR),
   };
 }
 

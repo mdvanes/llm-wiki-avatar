@@ -1,4 +1,5 @@
-import type { SpeechState } from './protocol';
+/** Where push-to-talk is with the user's speech: held down, or being transcribed in the browser. */
+export type SpeechState = 'idle' | 'hearing' | 'transcribing';
 
 /** What the conversation is doing, as shown to the user. */
 export type Phase = 'waiting' | 'listening' | 'hearing' | 'transcribing' | 'thinking' | 'speaking';
@@ -21,8 +22,8 @@ export function isProcessing(phase: Phase): boolean {
 export const TRANSCRIPT_GRACE_MS = 1500;
 
 /**
- * Between the transcript and the agent's "thinking" state there is a short gap (turn detection, committing the
- * push-to-talk turn). Returns true when that gap should keep showing the previous phase instead of "listening".
+ * Between the transcript and the agent's "thinking" state there is a short gap (sending the transcript, the agent
+ * picking it up). Returns true when that gap should keep showing the previous phase instead of "listening".
  */
 export function holdsPrevious(previous: Phase, next: Phase): boolean {
   return previous === 'transcribing' && next === 'listening';

@@ -1,5 +1,3 @@
-import { type InputMode, isInputMode } from './protocol';
-
 export const LANGUAGES = [
   { code: 'en', label: 'English', short: 'EN' },
   { code: 'nl', label: 'Nederlands', short: 'NL' },
@@ -24,18 +22,6 @@ export function saveLanguage(language: Language): void {
   window.localStorage.setItem(STORAGE_KEY, language);
 }
 
-const INPUT_MODE_KEY = 'llm-wiki-avatar.inputMode';
-
-export function loadInputMode(): InputMode {
-  if (typeof window === 'undefined') return 'always';
-  const stored = window.localStorage.getItem(INPUT_MODE_KEY);
-  return isInputMode(stored) ? stored : 'always';
-}
-
-export function saveInputMode(mode: InputMode): void {
-  window.localStorage.setItem(INPUT_MODE_KEY, mode);
-}
-
 /** UI strings; the agent handles the spoken side. */
 export const STRINGS = {
   en: {
@@ -51,8 +37,6 @@ export const STRINGS = {
     transcribing: 'Processing your speech…',
     preparing: 'Preparing an answer…',
     end: 'End',
-    mute: 'Mute microphone',
-    unmute: 'Unmute microphone',
     typePlaceholder: 'Or type a question…',
     send: 'Send',
     stop: 'Stop',
@@ -63,11 +47,43 @@ export const STRINGS = {
     noSources: 'Pages used for the answer appear here.',
     close: 'Close',
     language: 'Language',
-    micMode: 'Microphone mode',
-    alwaysOn: 'Always on',
     pushToTalk: 'Push to talk',
     holdToTalk: 'Hold to talk (or hold Space)',
     talking: 'Release to send',
+    noSpeechModel: 'Choose a speech model in the speech settings to talk',
+    loadingSpeechModel: 'Loading speech model…',
+    speechModelFailed: 'The speech model could not be loaded. Check the speech settings.',
+    micUnavailable: 'The microphone is not available.',
+    speechSettings: 'Speech settings',
+    settingsTitle: 'Speech recognition',
+    settingsIntro:
+      'Your speech is turned into text right here in the browser. Download a model once; the browser keeps it for next time.',
+    backToApp: 'Back to the conversation',
+    thisBrowser: 'This browser',
+    webgpuYes: 'WebGPU available: models run on the graphics card.',
+    webgpuNoF16: 'WebGPU available, without 16-bit float support: the largest model is not available.',
+    webgpuNo: 'No WebGPU: models run on the processor, which is slower. Chrome and Edge support WebGPU.',
+    storageUsed: 'Storage used',
+    models: 'Models',
+    recommended: 'Recommended',
+    inUse: 'In use',
+    use: 'Use',
+    download: 'Download',
+    resumeDownload: 'Continue download',
+    downloading: 'Downloading…',
+    cancel: 'Cancel',
+    remove: 'Remove',
+    confirmRemove: 'Remove this model from the browser?',
+    downloaded: 'Downloaded',
+    partlyDownloaded: 'Partly downloaded',
+    notDownloaded: 'Not downloaded',
+    needsWebgpuF16: 'Needs WebGPU with 16-bit float support',
+    downloadFailed: 'Download failed',
+    tryIt: 'Try it',
+    tryItHint: 'Hold the button (or Space) and say something.',
+    tryItNoModel: 'Download a model and select it first.',
+    nothingRecognized: 'Nothing recognized.',
+    transcribedIn: 'Transcribed in',
     empty: 'Say hello, or ask something like "How are Stripe webhooks retried?"',
     history: 'Conversations',
     noHistory: 'Past conversations appear here.',
@@ -110,8 +126,6 @@ export const STRINGS = {
     transcribing: 'Spraak verwerken…',
     preparing: 'Antwoord voorbereiden…',
     end: 'Stoppen',
-    mute: 'Microfoon dempen',
-    unmute: 'Microfoon aan',
     typePlaceholder: 'Of typ een vraag…',
     send: 'Versturen',
     stop: 'Stop',
@@ -122,11 +136,43 @@ export const STRINGS = {
     noSources: 'Gebruikte pagina’s verschijnen hier.',
     close: 'Sluiten',
     language: 'Taal',
-    micMode: 'Microfoonmodus',
-    alwaysOn: 'Altijd aan',
     pushToTalk: 'Drukken om te praten',
     holdToTalk: 'Ingedrukt houden om te praten (of houd spatie ingedrukt)',
     talking: 'Loslaten om te versturen',
+    noSpeechModel: 'Kies een spraakmodel in de spraakinstellingen om te praten',
+    loadingSpeechModel: 'Spraakmodel laden…',
+    speechModelFailed: 'Het spraakmodel kon niet worden geladen. Kijk in de spraakinstellingen.',
+    micUnavailable: 'De microfoon is niet beschikbaar.',
+    speechSettings: 'Spraakinstellingen',
+    settingsTitle: 'Spraakherkenning',
+    settingsIntro:
+      'Je spraak wordt hier in de browser omgezet naar tekst. Download een model één keer; de browser bewaart het voor de volgende keer.',
+    backToApp: 'Terug naar het gesprek',
+    thisBrowser: 'Deze browser',
+    webgpuYes: 'WebGPU beschikbaar: modellen draaien op de grafische kaart.',
+    webgpuNoF16: 'WebGPU beschikbaar, zonder 16-bit float-ondersteuning: het grootste model is niet beschikbaar.',
+    webgpuNo: 'Geen WebGPU: modellen draaien op de processor, wat trager is. Chrome en Edge ondersteunen WebGPU.',
+    storageUsed: 'Gebruikte opslag',
+    models: 'Modellen',
+    recommended: 'Aanbevolen',
+    inUse: 'In gebruik',
+    use: 'Gebruiken',
+    download: 'Downloaden',
+    resumeDownload: 'Download hervatten',
+    downloading: 'Downloaden…',
+    cancel: 'Annuleren',
+    remove: 'Verwijderen',
+    confirmRemove: 'Dit model uit de browser verwijderen?',
+    downloaded: 'Gedownload',
+    partlyDownloaded: 'Deels gedownload',
+    notDownloaded: 'Niet gedownload',
+    needsWebgpuF16: 'Vereist WebGPU met 16-bit float-ondersteuning',
+    downloadFailed: 'Downloaden mislukt',
+    tryIt: 'Uitproberen',
+    tryItHint: 'Houd de knop (of spatie) ingedrukt en zeg iets.',
+    tryItNoModel: 'Download eerst een model en selecteer het.',
+    nothingRecognized: 'Niets herkend.',
+    transcribedIn: 'Omgezet in',
     empty: 'Zeg hallo, of vraag bijvoorbeeld "Hoe worden Stripe-webhooks opnieuw geprobeerd?"',
     history: 'Gesprekken',
     noHistory: 'Eerdere gesprekken verschijnen hier.',

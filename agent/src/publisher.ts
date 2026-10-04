@@ -15,14 +15,12 @@ export const TOPICS = {
 export const REPLY_TARGET_ATTRIBUTE = 'target';
 
 export const RPC_SET_LANGUAGE = 'set_language';
-export const RPC_SET_INPUT_MODE = 'set_input_mode';
 /** Payload: `off`, `female` or `male`. */
 export const RPC_SET_VOICE = 'set_voice';
 /** Payload: `audio` or `words` (see Lipsync). */
 export const RPC_SET_LIPSYNC = 'set_lipsync';
-export const RPC_PTT_START = 'ptt_start';
-export const RPC_PTT_END = 'ptt_end';
-export const RPC_PTT_CANCEL = 'ptt_cancel';
+/** The user pressed push-to-talk: stop the current reply. The transcript follows as a chat message. */
+export const RPC_INTERRUPT = 'interrupt';
 /** Payload: JSON array of `{ role: 'user' | 'assistant', text }` from an earlier conversation. */
 export const RPC_RESTORE_HISTORY = 'restore_history';
 /** Stops the voice; payload: id of the transcript message being spoken (may be empty). */

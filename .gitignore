@@ -9,6 +9,7 @@ coverage/
 .env.*.local
 .DS_Store
 frontend/public/avatars/*.glb
+frontend/public/speech/
 frontend/next-env.d.ts
 *.tsbuildinfo
 tmp/

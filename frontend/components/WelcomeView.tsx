@@ -1,19 +1,17 @@
 'use client';
 
+import { useActiveSttModel } from '@/hooks/useSpeechRecognizer';
 import type { Language, Strings } from '@/lib/language';
 import type { Presentation } from '@/lib/presentation';
-import type { InputMode } from '@/lib/protocol';
 import { ShowHistoryButton } from './HistorySidebar';
-import { InputModeSelector } from './InputModeSelector';
 import { LanguageSelector } from './LanguageSelector';
 import { PresentationSelector } from './PresentationSelector';
+import { SettingsLink } from './SettingsLink';
 
 interface Props {
   strings: Strings;
   language: Language;
   onLanguageChange: (language: Language) => void;
-  inputMode: InputMode;
-  onInputModeChange: (mode: InputMode) => void;
   presentation: Presentation;
   onPresentationChange: (presentation: Presentation) => void;
   onStart: () => void;
@@ -27,8 +25,6 @@ export function WelcomeView({
   strings,
   language,
   onLanguageChange,
-  inputMode,
-  onInputModeChange,
   presentation,
   onPresentationChange,
   onStart,
@@ -36,6 +32,7 @@ export function WelcomeView({
   error,
   onShowHistory,
 }: Props) {
+  const sttModel = useActiveSttModel();
   return (
     <main className="relative grid min-h-full place-items-center p-6">
       {onShowHistory && (
@@ -53,14 +50,15 @@ export function WelcomeView({
         </div>
         <div className="flex flex-wrap items-center justify-center gap-3">
           <LanguageSelector value={language} onChange={onLanguageChange} label={strings.language} disabled={connecting} />
-          <InputModeSelector value={inputMode} onChange={onInputModeChange} strings={strings} disabled={connecting} />
           <PresentationSelector
             value={presentation}
             onChange={onPresentationChange}
             strings={strings}
             disabled={connecting}
           />
+          <SettingsLink label={strings.speechSettings} />
         </div>
+        {!sttModel && <p className="text-sm text-muted">{strings.noSpeechModel}</p>}
         <button
           type="button"
           onClick={onStart}

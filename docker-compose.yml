@@ -22,14 +22,12 @@ services:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
+  # Text-to-speech only; speech-to-text runs in the browser.
   speaches:
     image: ghcr.io/speaches-ai/speaches:latest-cpu
     environment:
       # Loaded at startup by newer Speaches versions; speaches-models below does the download.
-      PRELOAD_MODELS: '["${STT_MODEL:-Systran/faster-whisper-small}","${TTS_EN_MODEL:-speaches-ai/Kokoro-82M-v1.0-ONNX}","${TTS_NL_MODEL:-speaches-ai/piper-nl_BE-nathalie-medium}","${TTS_EN_MALE_MODEL:-speaches-ai/Kokoro-82M-v1.0-ONNX}","${TTS_NL_MALE_MODEL:-speaches-ai/piper-nl_BE-rdh-medium}"]'
-      WHISPER__COMPUTE_TYPE: int8
-      WHISPER__INFERENCE_DEVICE: cpu
-      STT_MODEL_TTL: "-1"
+      PRELOAD_MODELS: '["${TTS_EN_MODEL:-speaches-ai/Kokoro-82M-v1.0-ONNX}","${TTS_NL_MODEL:-speaches-ai/piper-nl_BE-nathalie-medium}","${TTS_EN_MALE_MODEL:-speaches-ai/Kokoro-82M-v1.0-ONNX}","${TTS_NL_MALE_MODEL:-speaches-ai/piper-nl_BE-rdh-medium}"]'
       TTS_MODEL_TTL: "-1"
       ENABLE_UI: "false"
       LOG_LEVEL: info
@@ -45,11 +43,11 @@ services:
       start_period: 2m
     restart: unless-stopped
 
-  # Downloads the speech models into the hf-cache volume (about 1 GB on first run, instant after).
+  # Downloads the TTS models into the hf-cache volume (on first run only).
   speaches-models:
     image: curlimages/curl:latest
     environment:
-      MODELS: ${STT_MODEL:-Systran/faster-whisper-small} ${TTS_EN_MODEL:-speaches-ai/Kokoro-82M-v1.0-ONNX} ${TTS_NL_MODEL:-speaches-ai/piper-nl_BE-nathalie-medium} ${TTS_EN_MALE_MODEL:-speaches-ai/Kokoro-82M-v1.0-ONNX} ${TTS_NL_MALE_MODEL:-speaches-ai/piper-nl_BE-rdh-medium}
+      MODELS: ${TTS_EN_MODEL:-speaches-ai/Kokoro-82M-v1.0-ONNX} ${TTS_NL_MODEL:-speaches-ai/piper-nl_BE-nathalie-medium} ${TTS_EN_MALE_MODEL:-speaches-ai/Kokoro-82M-v1.0-ONNX} ${TTS_NL_MALE_MODEL:-speaches-ai/piper-nl_BE-rdh-medium}
     entrypoint:
       - sh
       - -c
@@ -76,7 +74,6 @@ services:
       LIVEKIT_API_SECRET: secret
       AGENT_NAME: ${AGENT_NAME:-llm-wiki-avatar}
       WIKI_SOURCES: "${WIKI_SOURCES:-}"
-      VOCAB_DIR: /app/vocab
       # Bind mounts from macOS/Windows do not deliver file events; poll instead.
       WIKI_WATCH_POLL: "true"
       LLM_BASE_URL: ${LLM_BASE_URL_DOCKER:-http://host.docker.internal:11434/v1}
@@ -84,7 +81,6 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-ollama}
       LLM_REASONING_EFFORT: ${LLM_REASONING_EFFORT:-}
       SPEACHES_URL: http://speaches:8000/v1
-      STT_MODEL: ${STT_MODEL:-Systran/faster-whisper-small}
       TTS_EN_MODEL: ${TTS_EN_MODEL:-speaches-ai/Kokoro-82M-v1.0-ONNX}
       TTS_EN_VOICE: ${TTS_EN_VOICE:-af_heart}
       TTS_NL_MODEL: ${TTS_NL_MODEL:-speaches-ai/piper-nl_BE-nathalie-medium}
@@ -99,7 +95,6 @@ services:
     volumes:
       - ./sample-wiki:/app/sample-wiki:ro
       - ./wikis:/app/wikis:ro
-      - ./vocab:/app/vocab:ro
     depends_on:
       livekit:
         condition: service_started

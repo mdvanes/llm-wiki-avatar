@@ -1,8 +1,7 @@
 import { initializeLogger } from '@livekit/agents';
-import * as openai from '@livekit/agents-plugin-openai';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/config.ts';
 import { languageProfiles } from '../src/language.ts';
 import { RecordingPublisher, TOPICS } from '../src/publisher.ts';
@@ -194,20 +193,17 @@ describe('WikiAgent.setLipsync', () => {
 });
 
 describe('WikiAgent.setLanguage', () => {
-  it('switches STT language, TTS voice, instructions and notifies the UI', async () => {
-       const cfg = loadConfig({ SPEACHES_URL: baseURL });
+  it('switches TTS voice, instructions and notifies the UI', async () => {
+    const cfg = loadConfig({ SPEACHES_URL: baseURL });
     const wiki = await Wiki.open(SAMPLE_WIKI);
     const profiles = languageProfiles(cfg);
-    const stt = new openai.STT({ baseURL, apiKey: 'x', model: 'whisper', useRealtime: false, language: 'en' });
     const tts = new SpeachesTTS(profiles.en.voices.female);
-    const sttUpdate = vi.spyOn(stt, 'updateOptions');
     const publisher = new RecordingPublisher();
-    const agent = new WikiAgent({ wiki, cfg, publisher, profiles, language: 'en', stt, tts, sttPrompt: 'Glossary: X.' });
+    const agent = new WikiAgent({ wiki, cfg, publisher, profiles, language: 'en', tts });
 
     expect(agent.instructions).toContain('Always reply in English');
     await agent.setLanguage('nl', { announce: false });
     expect(agent.language).toBe('nl');
-    expect(sttUpdate).toHaveBeenLastCalledWith({ language: 'nl', prompt: 'Glossary: X.' });
     expect(tts.model).toBe(profiles.nl.voices.female.model);
     expect(tts.voice).toMatchObject({ model: profiles.nl.voices.female.model, voice: 'nathalie' });
     expect(agent.instructions).toContain('Always reply in Dutch');

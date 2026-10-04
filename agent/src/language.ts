@@ -5,8 +5,6 @@ export interface LanguageProfile {
   code: Language;
   /** Language name as used in instructions to the LLM. */
   name: string;
-  /** ISO code passed to Whisper. */
-  whisperLanguage: string;
   /** TTS voice per gender. */
   voices: Record<VoiceGender, SpeachesVoice>;
   /** Female voice with word timings for the premium avatar's lip-sync; absent where not supported. */
@@ -28,7 +26,6 @@ export function languageProfiles(cfg: Config): Record<Language, LanguageProfile>
     en: {
       code: 'en',
       name: 'English',
-      whisperLanguage: 'en',
       voices: {
         female: enFemale,
         male: {
@@ -46,7 +43,6 @@ export function languageProfiles(cfg: Config): Record<Language, LanguageProfile>
     nl: {
       code: 'nl',
       name: 'Dutch',
-      whisperLanguage: 'nl',
       voices: {
         female: {
           baseURL: cfg.TTS_NL_BASE_URL ?? cfg.SPEACHES_URL,

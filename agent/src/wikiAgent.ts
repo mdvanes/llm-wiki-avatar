@@ -1,10 +1,7 @@
-import { type FlushSentinel, llm, log, stt, voice } from '@livekit/agents';
-import type * as openai from '@livekit/agents-plugin-openai';
-import type { AudioFrame } from '@livekit/rtc-node';
-import { ReadableStream, TransformStream } from 'node:stream/web';
+import { type FlushSentinel, llm, log, voice } from '@livekit/agents';
+import type { ReadableStream } from 'node:stream/web';
 import type { Config, Language, Lipsync, Voice } from './config.ts';
 import { type HistoryTurn, withRestoredHistory } from './history.ts';
-import type { SttTap } from './inputMode.ts';
 import type { LanguageProfile } from './language.ts';
 import { MoodFilter } from './mood.ts';
 import { buildInstructions, buildWikiContext, wikiOverview } from './prompts.ts';
@@ -13,7 +10,6 @@ import { ReplyCapture, captureLlmStream } from './replyCapture.ts';
 import type { SpeachesTTS } from './speachesTts.ts';
 import { type StreamingTextFilter, filterTextStream } from './textStream.ts';
 import { SourceTracker, createWikiTools } from './tools.ts';
-import type { VocabularyCorrector } from './vocab.ts';
 import { parseWikilinks } from './wiki/store.ts';
 import type { Wiki } from './wiki/wiki.ts';
 
@@ -28,14 +24,8 @@ export interface WikiAgentOptions {
   publisher: Publisher;
   profiles: Record<Language, LanguageProfile>;
   language: Language;
-  /** The session's STT/TTS; switched in place when the language changes. Absent in text-only tests. */
-  stt?: openai.STT;
+  /** The session's TTS; switched in place when the language changes. Absent in text-only tests. */
   tts?: SpeachesTTS;
-  /** Whisper prompt with hotwords, primes the recognizer to spell identifiers correctly. */
-  sttPrompt?: string;
-  corrector?: VocabularyCorrector;
-  /** Lets push-to-talk flush STT on release and follow its progress. */
-  sttTap?: SttTap;
   /** Initial voice; `off` makes replies text only. Defaults to `female`. */
   voice?: Voice;
   /** The session's audio output; turned off for the `off` voice. */
@@ -121,7 +111,7 @@ export class WikiAgent extends voice.Agent {
     return this.#opts.profiles[this.#language];
   }
 
-  /** Switches STT language, TTS voice and reply language; optionally confirms out loud. */
+  /** Switches TTS voice and reply language; optionally confirms out loud. */
   async setLanguage(language: Language, { announce = true } = {}): Promise<void> {
     if (language === this.#language) return;
     this.#language = language;
@@ -135,7 +125,7 @@ export class WikiAgent extends voice.Agent {
   }
 
   /**
-   * Switches the voice gender, or turns speech off (`off`: replies are text only; STT keeps working).
+   * Switches the voice gender, or turns speech off (`off`: replies are text only; push-to-talk keeps working).
    * Takes effect from the next reply; the caller stops a reply that is being spoken.
    */
   setVoice(voice: Voice): void {
@@ -211,7 +201,6 @@ export class WikiAgent extends voice.Agent {
 
   #applySpeechSettings(): void {
     const profile = this.#opts.profiles[this.#language];
-    this.#opts.stt?.updateOptions({ language: profile.whisperLanguage, prompt: this.#opts.sttPrompt });
     this.#opts.audioOutput?.setAudioEnabled(this.#voice !== 'off');
     // Keep the TTS on a real voice even when off, so turning speech back on needs no extra step.
     const gender = this.#voice === 'off' ? 'female' : this.#voice;
@@ -298,31 +287,5 @@ export class WikiAgent extends voice.Agent {
       }),
     );
     return voice.Agent.default.transcriptionNode(this, filtered, modelSettings);
-  }
-
-  override async sttNode(
-    audio: ReadableStream<AudioFrame> | AsyncIterable<AudioFrame>,
-    modelSettings: voice.ModelSettings,
-  ): Promise<ReadableStream<stt.SpeechEvent | string> | null> {
-    const tap = this.#opts.sttTap;
-    let events = await voice.Agent.default.sttNode(this, tap ? tap.wrapAudio(audio) : audio, modelSettings);
-    if (events && tap) events = tap.watchEvents(events);
-    const corrector = this.#opts.corrector;
-    if (!events || !corrector || corrector.size === 0) return events;
-    const logger = log();
-    return events.pipeThrough(
-      new TransformStream<stt.SpeechEvent | string, stt.SpeechEvent | string>({
-        transform(event, controller) {
-          if (typeof event === 'string' || event.type !== stt.SpeechEventType.FINAL_TRANSCRIPT || !event.alternatives) {
-            controller.enqueue(event);
-            return;
-          }
-          const [first, ...rest] = event.alternatives;
-          const text = corrector.correct(first.text);
-          if (text !== first.text) logger.debug({ from: first.text, to: text }, 'vocabulary correction');
-          controller.enqueue({ ...event, alternatives: [{ ...first, text }, ...rest] });
-        },
-      }),
-    );
   }
 }

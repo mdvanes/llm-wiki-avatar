@@ -1,18 +1,14 @@
-import { type JobContext, ServerOptions, cli, defineAgent, inference, log, voice } from '@livekit/agents';
+import { type JobContext, ServerOptions, cli, defineAgent, log, voice } from '@livekit/agents';
 import * as openai from '@livekit/agents-plugin-openai';
 import type { ReadableStream } from 'node:stream/web';
 import { fileURLToPath } from 'node:url';
 import { type Config, type Language, type Voice, isLanguage, isLipsync, isVoice, loadConfig } from './config.ts';
 import { parseHistoryPayload } from './history.ts';
-import { InputModeController, SttTap, isInputMode } from './inputMode.ts';
 import { languageProfiles } from './language.ts';
 import { MoodFilter } from './mood.ts';
 import {
-  RPC_PTT_CANCEL,
-  RPC_PTT_END,
-  RPC_PTT_START,
+  RPC_INTERRUPT,
   RPC_RESTORE_HISTORY,
-  RPC_SET_INPUT_MODE,
   RPC_SET_LANGUAGE,
   RPC_SET_LIPSYNC,
   RPC_SET_VOICE,
@@ -22,20 +18,15 @@ import {
 import { SpeachesTTS } from './speachesTts.ts';
 import { SpeechFilter } from './speechFilter.ts';
 import { filterTextStream } from './textStream.ts';
-import { VocabularyCorrector, buildSttPrompt, loadVocabulary } from './vocab.ts';
 import { WikiAgent } from './wikiAgent.ts';
 import { Wiki } from './wiki/wiki.ts';
 
 /** Participant attribute the frontend sets (via its token) to choose the language. */
 export const LANGUAGE_ATTRIBUTE = 'language';
-/** Participant attribute for the microphone mode: `always` or `ptt` (push-to-talk). */
-export const INPUT_MODE_ATTRIBUTE = 'input_mode';
 /** Participant attribute for the voice: `off` (text replies only), `female` or `male`. */
 export const VOICE_ATTRIBUTE = 'voice';
 /** Participant attribute for the lip-sync: `audio` or `words` (premium avatar). */
 export const LIPSYNC_ATTRIBUTE = 'lipsync';
-/** Set on the agent participant: `hearing`, `transcribing` or `idle` (see SttTap). */
-export const SPEECH_STATE_ATTRIBUTE = 'speech_state';
 
 /** TTS input transforms: drop the mood tag and code, then the built-in markdown/emoji cleanup. */
 export function ttsTextTransforms(): voice.AgentSessionOptions['ttsTextTransforms'] {
@@ -73,20 +64,7 @@ export default defineAgent({
     ctx.addShutdownCallback(() => wiki.close());
     logger.info({ sources: wiki.store.sources, pages: wiki.store.size }, 'wiki loaded');
 
-    const vocabulary = loadVocabulary(cfg.VOCAB_DIR);
-    const sttPrompt = buildSttPrompt(vocabulary);
-    const corrector = cfg.STT_FUZZY_CORRECTION ? new VocabularyCorrector(vocabulary) : undefined;
-    logger.info({ terms: vocabulary.length, corrections: corrector?.size ?? 0 }, 'vocabulary loaded');
-
     const initial = profiles[cfg.DEFAULT_LANGUAGE];
-    const stt = new openai.STT({
-      baseURL: cfg.SPEACHES_URL,
-      apiKey: cfg.SPEACHES_API_KEY,
-      model: cfg.STT_MODEL,
-      useRealtime: false,
-      language: initial.whisperLanguage,
-      ...(sttPrompt ? { prompt: sttPrompt } : {}),
-    });
     const publisher = new RoomPublisher(ctx.room, (err) => logger.warn({ err }, 'failed to publish to room'));
     // WikiAgent switches to the configured voice.
     const tts = new SpeachesTTS({
@@ -96,46 +74,35 @@ export default defineAgent({
       onWords: (segment) => publisher.words(segment),
     });
 
-    // Pin the local model: without a version, dev mode picks the cloud turn detector.
-    const turnDetector = new inference.TurnDetector({ version: 'v1-mini' });
+    // The browser transcribes push-to-talk itself and sends the text as a chat message.
     const session = new voice.AgentSession({
-      vad: new inference.VAD(),
-      stt,
+      vad: null,
       llm: createLLM(cfg),
       tts,
       turnHandling: {
-        turnDetection: turnDetector,
-        interruption: { mode: 'vad' },
-        // On CPU a speculative reply competes with the real one for cycles.
+        turnDetection: 'manual',
         preemptiveGeneration: { enabled: false },
       },
       ttsTextTransforms: ttsTextTransforms(),
       connOptions: {
         llmConnOptions: { timeoutMs: cfg.LLM_TIMEOUT_S * 1000 },
-        sttConnOptions: { timeoutMs: cfg.SPEECH_TIMEOUT_S * 1000 },
         ttsConnOptions: { timeoutMs: cfg.SPEECH_TIMEOUT_S * 1000 },
       },
     });
 
-    const sttTap = new SttTap();
-    sttTap.trackRecognition(stt);
     const agent = new WikiAgent({
       wiki,
       cfg,
       publisher,
       profiles,
       language: cfg.DEFAULT_LANGUAGE,
-      stt,
       tts,
-      sttPrompt,
-      corrector,
-      sttTap,
       voice: cfg.DEFAULT_VOICE,
       audioOutput: session.output,
     });
     wiki.watch();
 
-    await session.start({ agent, room: ctx.room });
+    await session.start({ agent, room: ctx.room, inputOptions: { audioEnabled: false } });
     await ctx.connect();
 
     ctx.room.localParticipant?.registerRpcMethod(RPC_SET_LANGUAGE, async ({ payload, callerIdentity }) => {
@@ -175,48 +142,12 @@ export default defineAgent({
       return requested;
     });
 
-    let publishedSpeechState = '';
-    const publishSpeechState = () => {
-      const state = sttTap.state;
-      const participant = ctx.room.localParticipant;
-      if (state === publishedSpeechState || !participant) return;
-      publishedSpeechState = state;
-      participant
-        .setAttributes({ [SPEECH_STATE_ATTRIBUTE]: state })
-        .catch((err: unknown) => logger.warn({ err }, 'failed to publish speech state'));
-    };
-    sttTap.onChange(publishSpeechState);
-    publishSpeechState();
-
-    const inputMode = new InputModeController(session, sttTap, {
-      autoTurnDetection: turnDetector,
-      transcriptTimeoutMs: cfg.SPEECH_TIMEOUT_S * 1000,
-    });
-    const rpc = ctx.room.localParticipant;
-    rpc?.registerRpcMethod(RPC_SET_INPUT_MODE, async ({ payload }) => {
-      const mode = payload.trim().toLowerCase();
-      if (!isInputMode(mode)) throw new Error(`unsupported input mode "${payload}"`);
-      inputMode.setMode(mode);
-      logger.info({ mode }, 'input mode changed');
-      return mode;
-    });
-    rpc?.registerRpcMethod(RPC_PTT_START, async () => {
-      inputMode.startTurn();
-      return 'ok';
-    });
-    rpc?.registerRpcMethod(RPC_PTT_END, async () => {
-      const result = await inputMode.endTurn();
-      logger.debug({ result }, 'push-to-talk turn ended');
-      return result;
-    });
-    rpc?.registerRpcMethod(RPC_PTT_CANCEL, async () => {
-      inputMode.cancelTurn();
+    ctx.room.localParticipant?.registerRpcMethod(RPC_INTERRUPT, async () => {
+      session.interrupt();
       return 'ok';
     });
 
     const participant = await ctx.waitForParticipant();
-    const requestedMode = participant.attributes[INPUT_MODE_ATTRIBUTE]?.toLowerCase();
-    if (isInputMode(requestedMode)) inputMode.setMode(requestedMode);
     const requestedVoice = participant.attributes[VOICE_ATTRIBUTE]?.toLowerCase();
     const initialVoice: Voice = isVoice(requestedVoice) ? requestedVoice : cfg.DEFAULT_VOICE;
     agent.setVoice(initialVoice);
@@ -226,7 +157,7 @@ export default defineAgent({
     const language: Language = isLanguage(requested) ? requested : cfg.DEFAULT_LANGUAGE;
     await agent.setLanguage(language, { announce: false });
     publisher.language(language);
-    logger.info({ language, voice: initialVoice, inputMode: inputMode.mode, participant: participant.identity }, 'session started');
+    logger.info({ language, voice: initialVoice, participant: participant.identity }, 'session started');
 
     agent.say(`[mood:happy] ${profiles[language].greeting}`);
   },

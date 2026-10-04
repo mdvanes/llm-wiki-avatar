@@ -9,32 +9,31 @@ import {
 import { RemoteAudioTrack } from 'livekit-client';
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useConversationRecorder } from '@/hooks/useConversationRecorder';
+import { usePushToTalk } from '@/hooks/usePushToTalk';
+import { useActiveSttModel } from '@/hooks/useSpeechRecognizer';
 import { useWikiStreams } from '@/hooks/useWikiStreams';
 import { type Conversation, mergeEntries, restorePayload } from '@/lib/history';
 import type { Language, Strings } from '@/lib/language';
 import { type Presentation, avatarOf, lipsyncOf, voiceOf } from '@/lib/presentation';
 import { stopTarget, withFullReplies } from '@/lib/reply';
 import {
-  type InputMode,
+  RPC_INTERRUPT,
   RPC_RESTORE_HISTORY,
-  RPC_SET_INPUT_MODE,
   RPC_SET_LANGUAGE,
   RPC_SET_LIPSYNC,
   RPC_SET_VOICE,
   RPC_STOP_SPEAKING,
-  SPEECH_STATE_ATTRIBUTE,
-  toSpeechState,
 } from '@/lib/protocol';
 import { type Phase, TRANSCRIPT_GRACE_MS, conversationPhase, holdsPrevious } from '@/lib/status';
 import { AnswerCard } from './AnswerCard';
 import { CartoonAvatar } from './CartoonAvatar';
 import { ConversationStatus, phaseLabel } from './ConversationStatus';
-import { InputModeSelector } from './InputModeSelector';
 import { LanguageSelector } from './LanguageSelector';
 import { ShowHistoryButton } from './HistorySidebar';
 import { MicButton } from './MicButton';
 import { PageViewer, type PageRef } from './PageViewer';
 import { PresentationSelector } from './PresentationSelector';
+import { SettingsLink } from './SettingsLink';
 import { SpinnerOverlay } from './Spinner';
 import { SourceChips } from './SourceChips';
 import { Transcript, toTranscriptEntry } from './Transcript';
@@ -43,8 +42,6 @@ interface Props {
   strings: Strings;
   language: Language;
   onLanguageChange: (language: Language) => void;
-  inputMode: InputMode;
-  onInputModeChange: (mode: InputMode) => void;
   presentation: Presentation;
   onPresentationChange: (presentation: Presentation) => void;
   /** An earlier conversation that this session continues. */
@@ -110,8 +107,6 @@ export function SessionView({
   strings,
   language,
   onLanguageChange,
-  inputMode,
-  onInputModeChange,
   presentation,
   onPresentationChange,
   previous,
@@ -169,25 +164,22 @@ export function SessionView({
     [agent.identity, language, localParticipant, onLanguageChange],
   );
 
-  const changeInputMode = useCallback(
-    async (next: InputMode) => {
-      if (next === inputMode) return;
-      const previous = inputMode;
-      onInputModeChange(next);
-      if (!agent.identity) return;
-      try {
-        await localParticipant.performRpc({
-          destinationIdentity: agent.identity,
-          method: RPC_SET_INPUT_MODE,
-          payload: next,
-        });
-      } catch (err) {
-        console.error('set_input_mode failed', err);
-        onInputModeChange(previous);
-      }
+  const interrupt = useCallback(() => {
+    if (!agent.identity) return;
+    localParticipant
+      .performRpc({ destinationIdentity: agent.identity, method: RPC_INTERRUPT, payload: '' })
+      .catch((err) => console.error('interrupt failed', err));
+  }, [agent.identity, localParticipant]);
+
+  const sttModel = useActiveSttModel();
+  const ptt = usePushToTalk({
+    model: sttModel,
+    language,
+    onPress: interrupt,
+    onResult: (text) => {
+      if (text) void send(text);
     },
-    [agent.identity, inputMode, localParticipant, onInputModeChange],
-  );
+  });
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -279,8 +271,7 @@ export function SessionView({
     () => (voice === 'off' ? { ...strings, speaking: strings.answering } : strings),
     [voice, strings],
   );
-  const speechState = toSpeechState(agent.attributes?.[SPEECH_STATE_ATTRIBUTE]);
-  const phase = useSettledPhase(conversationPhase(agent.state, speechState));
+  const phase = useSettledPhase(conversationPhase(agent.state, ptt.state));
   const busy = phase === 'hearing' || phase === 'transcribing' || phase === 'thinking';
   const agentAudio = agentAudioTrack?.mediaStreamTrack;
   const showStop = speaking && !silenced && voice !== 'off';
@@ -300,12 +291,6 @@ export function SessionView({
           )}
         </div>
         <div className="flex items-center gap-3">
-          <InputModeSelector
-            value={inputMode}
-            onChange={changeInputMode}
-            disabled={!agent.isConnected}
-            strings={strings}
-          />
           <PresentationSelector
             value={presentation}
             onChange={(next) => void changePresentation(next)}
@@ -318,6 +303,7 @@ export function SessionView({
             disabled={switching || !agent.isConnected}
             label={strings.language}
           />
+          <SettingsLink label={strings.speechSettings} newTab />
           <button
             type="button"
             onClick={() => void session.end()}
@@ -368,7 +354,7 @@ export function SessionView({
               )}
             </div>
             <form onSubmit={submit} className="flex items-center gap-2 border-t border-border p-3">
-              <MicButton mode={inputMode} agentIdentity={agent.identity} strings={strings} />
+              <MicButton ptt={ptt} strings={strings} />
               <input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}

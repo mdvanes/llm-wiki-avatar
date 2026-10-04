@@ -13,39 +13,21 @@ export const TOPICS = {
 export const REPLY_TARGET_ATTRIBUTE = 'target';
 
 export const RPC_SET_LANGUAGE = 'set_language';
-export const RPC_SET_INPUT_MODE = 'set_input_mode';
 /** Switches the agent's voice; payload: a Voice. */
 export const RPC_SET_VOICE = 'set_voice';
 /** Switches between loudness and word-timed lip-sync; payload: a Lipsync. */
 export const RPC_SET_LIPSYNC = 'set_lipsync';
-export const RPC_PTT_START = 'ptt_start';
-export const RPC_PTT_END = 'ptt_end';
-export const RPC_PTT_CANCEL = 'ptt_cancel';
+/** Push-to-talk pressed: the agent stops its reply. The transcript follows as a chat message. */
+export const RPC_INTERRUPT = 'interrupt';
 /** Continues an earlier conversation; see restorePayload in lib/history.ts. */
 export const RPC_RESTORE_HISTORY = 'restore_history';
 /** Stops the voice at once; the rest of the reply arrives as text on the `wiki.reply` topic. */
 export const RPC_STOP_SPEAKING = 'stop_speaking';
 export const LANGUAGE_ATTRIBUTE = 'language';
-export const INPUT_MODE_ATTRIBUTE = 'input_mode';
 export const VOICE_ATTRIBUTE = 'voice';
 export const LIPSYNC_ATTRIBUTE = 'lipsync';
-/** Set by the agent on itself: where speech-to-text is with the user's current utterance. */
-export const SPEECH_STATE_ATTRIBUTE = 'speech_state';
-export type SpeechState = 'idle' | 'hearing' | 'transcribing';
 
-export function toSpeechState(value: string | undefined): SpeechState {
-  return value === 'hearing' || value === 'transcribing' ? value : 'idle';
-}
-
-/** `always`: hands-free with automatic turn detection. `ptt`: hold a button while talking. */
-export const INPUT_MODES = ['always', 'ptt'] as const;
-export type InputMode = (typeof INPUT_MODES)[number];
-
-export function isInputMode(value: unknown): value is InputMode {
-  return typeof value === 'string' && (INPUT_MODES as readonly string[]).includes(value);
-}
-
-/** `off`: the agent replies in text only (speech-to-text keeps working). Otherwise the gender of the voice. */
+/** `off`: the agent replies in text only (push-to-talk keeps working). Otherwise the gender of the voice. */
 export const VOICES = ['off', 'female', 'male'] as const;
 export type Voice = (typeof VOICES)[number];
 

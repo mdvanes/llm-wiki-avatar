@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node scripts/next.mjs dev --webpack",
-    "build": "next build --webpack",
+    "dev": "node scripts/copy-speech-assets.mjs && node scripts/next.mjs dev --webpack",
+    "build": "node scripts/copy-speech-assets.mjs && next build --webpack",
     "start": "node scripts/next.mjs start",
     "typecheck": "tsc --noEmit",
     "test": "vitest --run"
@@ -20,6 +20,7 @@
     "vitest": "^5.0.2"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.3.0",
     "@livekit/components-react": "^2.9.24",
     "@met4citizen/talkinghead": "^1.7.0",
     "livekit-client": "^2.22.3",

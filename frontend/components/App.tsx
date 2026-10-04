@@ -4,9 +4,9 @@ import { RoomAudioRenderer, SessionProvider, StartAudio, useSession } from '@liv
 import { TokenSource } from 'livekit-client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type Conversation, clearHistory, deleteConversation, loadHistory, saveConversation } from '@/lib/history';
-import { type Language, STRINGS, loadInputMode, loadLanguage, saveInputMode, saveLanguage } from '@/lib/language';
+import { type Language, STRINGS, loadLanguage, saveLanguage } from '@/lib/language';
 import { type Presentation, lipsyncOf, loadPresentation, savePresentation, voiceOf } from '@/lib/presentation';
-import { INPUT_MODE_ATTRIBUTE, type InputMode, LANGUAGE_ATTRIBUTE, LIPSYNC_ATTRIBUTE, VOICE_ATTRIBUTE } from '@/lib/protocol';
+import { LANGUAGE_ATTRIBUTE, LIPSYNC_ATTRIBUTE, VOICE_ATTRIBUTE } from '@/lib/protocol';
 import { ConversationViewer } from './ConversationViewer';
 import { HistorySidebar } from './HistorySidebar';
 import { SessionView } from './SessionView';
@@ -17,7 +17,6 @@ const SIDEBAR_KEY = 'llm-wiki-avatar.historySidebar';
 
 export function App({ defaultPresentation }: { defaultPresentation: Presentation }) {
   const [language, setLanguage] = useState<Language>('en');
-  const [inputMode, setInputMode] = useState<InputMode>('always');
   const [presentation, setPresentation] = useState<Presentation>(defaultPresentation);
   const [error, setError] = useState<string>();
   const [starting, setStarting] = useState(false);
@@ -29,7 +28,6 @@ export function App({ defaultPresentation }: { defaultPresentation: Presentation
 
   useEffect(() => {
     setLanguage(loadLanguage());
-    setInputMode(loadInputMode());
     setPresentation(loadPresentation(defaultPresentation));
     setHistory(loadHistory());
     const stored = window.localStorage.getItem(SIDEBAR_KEY);
@@ -51,29 +49,23 @@ export function App({ defaultPresentation }: { defaultPresentation: Presentation
     saveLanguage(next);
   }, []);
 
-  const changeInputMode = useCallback((next: InputMode) => {
-    setInputMode(next);
-    saveInputMode(next);
-  }, []);
-
   const changePresentation = useCallback((next: Presentation) => {
     setPresentation(next);
     savePresentation(next);
   }, []);
 
-  // The token route puts these on the participant, so the agent starts in the right language, mic mode and voice.
+  // The token route puts these on the participant, so the agent starts in the right language and voice.
   const voice = voiceOf(presentation);
   const lipsync = lipsyncOf(presentation);
   const options = useMemo(
     () => ({
       participantAttributes: {
         [LANGUAGE_ATTRIBUTE]: language,
-        [INPUT_MODE_ATTRIBUTE]: inputMode,
         [VOICE_ATTRIBUTE]: voice,
         [LIPSYNC_ATTRIBUTE]: lipsync,
       },
     }),
-    [language, inputMode, voice, lipsync],
+    [language, voice, lipsync],
   );
   const session = useSession(tokenSource, options);
   const strings = STRINGS[language];
@@ -125,8 +117,6 @@ export function App({ defaultPresentation }: { defaultPresentation: Presentation
               strings={strings}
               language={language}
               onLanguageChange={changeLanguage}
-              inputMode={inputMode}
-              onInputModeChange={changeInputMode}
               presentation={presentation}
               onPresentationChange={changePresentation}
               previous={continuing}
@@ -139,8 +129,6 @@ export function App({ defaultPresentation }: { defaultPresentation: Presentation
               strings={strings}
               language={language}
               onLanguageChange={changeLanguage}
-              inputMode={inputMode}
-              onInputModeChange={changeInputMode}
               presentation={presentation}
               onPresentationChange={changePresentation}
               onStart={() => void start()}

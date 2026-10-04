@@ -1,6 +1,6 @@
 /**
  * Checks that every service the agent needs is reachable and working:
- * wiki folder, LiveKit, LLM, and TTS → STT round trips per language.
+ * wiki folder, LiveKit, LLM, and TTS per language and voice.
  *
  *   npm run smoke
  */
@@ -67,7 +67,6 @@ await check('llm', async () => {
 
 for (const profile of Object.values(languageProfiles(cfg))) {
   for (const [gender, tts] of Object.entries(profile.voices)) {
-    let audio: Blob | undefined;
     await check(`tts ${profile.code} ${gender}`, async () => {
       const res = await ok(
         await fetch(`${tts.baseURL}/audio/speech`, {
@@ -82,25 +81,8 @@ for (const profile of Object.values(languageProfiles(cfg))) {
           signal: AbortSignal.timeout(cfg.SPEECH_TIMEOUT_S * 1000 * 4),
         }),
       );
-      audio = await res.blob();
+      const audio = await res.blob();
       return `${tts.model} / ${tts.voice}, ${audio.size} bytes`;
-    });
-    if (!audio) continue;
-    await check(`stt ${profile.code} ${gender}`, async () => {
-      const form = new FormData();
-      form.append('file', audio!, 'smoke.wav');
-      form.append('model', cfg.STT_MODEL);
-      form.append('language', profile.whisperLanguage);
-      const res = await ok(
-        await fetch(`${cfg.SPEACHES_URL}/audio/transcriptions`, {
-          method: 'POST',
-          headers: { authorization: `Bearer ${cfg.SPEACHES_API_KEY}` },
-          body: form,
-          signal: AbortSignal.timeout(cfg.SPEECH_TIMEOUT_S * 1000 * 4),
-        }),
-      );
-      const { text } = (await res.json()) as { text: string };
-      return `${cfg.STT_MODEL} → ${JSON.stringify(text.trim())}`;
     });
   }
 }

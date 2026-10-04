@@ -5,14 +5,16 @@ Dutch. A live transcript runs alongside, and commands and code snippets show up 
 aloud.
 
 It implements steps 2 and 3 of [`Voice_Interface for LLM Wiki.md`](./Voice_Interface%20for%20LLM%20Wiki.md) directly
-on [LiveKit Agents](https://docs.livekit.io/agents/) for Node, without Open WebUI. Everything runs locally on CPU.
+on [LiveKit Agents](https://docs.livekit.io/agents/) for Node, without Open WebUI. Everything runs locally: speech
+recognition in the browser, the rest on CPU.
 
 ```
-Browser (Next.js)                                   agent (Node, @livekit/agents)
-  mic ──WebRTC──► livekit-server (dev) ◄──────────►   Silero VAD + multilingual turn detector
-  cartoon avatar ◄── agent audio                      STT  faster-whisper (Speaches)  + hotword prompt
-  transcript, sources, answer cards ◄── text streams  LLM  Ollama (OpenAI API) + wiki RAG + wiki tools
-  EN / NL selector ──attribute / RPC──►               TTS  Kokoro (en) / Piper (nl) via Speaches
+Browser (Next.js)                                         agent (Node, @livekit/agents)
+  push-to-talk mic ─► Whisper in a Web Worker (WebGPU/WASM)
+  transcribed text ──lk.chat──► livekit-server (dev) ◄──►  LLM  Ollama (OpenAI API) + wiki RAG + wiki tools
+  cartoon avatar ◄── agent audio                            TTS  Kokoro (en) / Piper (nl) via Speaches
+  transcript, sources, answer cards ◄── text streams
+  EN / NL selector ──attribute / RPC──►
 ```
 
 ## How it works
@@ -24,33 +26,37 @@ Browser (Next.js)                                   agent (Node, @livekit/agents
 - **Voice-first answers.** The model answers in 2–4 spoken sentences. Code, commands and markdown are removed
   before TTS. Replies that contain code, and anything sent through `showOnScreen`, appear as an answer card. The
   sources the answer used appear as chips; click one to open the page, including `[[wikilinks]]`.
-- **Languages.** The EN/NL selector sets the Whisper language, the TTS voice and the reply language. The wiki
-  stays in English. Choosing a language before you start sends it as a participant attribute. Changing it during
+- **Languages.** The EN/NL selector sets the speech recognition language, the TTS voice and the reply language. The
+  wiki stays in English. Choosing a language before you start sends it as a participant attribute. Changing it during
   a session sends the `set_language` RPC, and the agent confirms in the new language.
-- **Microphone modes.** *Always on* (default): the turn detector decides when you've finished, and you can interrupt
-  the agent by talking. *Push to talk*: hold the mic button or the Space bar while you talk. The agent listens only
-  while it is held, and answers when you release it. Pick a mode on the start screen or switch during a session; the
-  choice is remembered in the browser. A ring around the mic button grows with your voice while speech is picked up.
+- **Push to talk.** Hold the mic button or the Space bar while you talk, and release it to send. Pressing stops the
+  agent if it is still answering (`interrupt` RPC). The recording never leaves the browser: Whisper turns it into
+  text there (see *Speech recognition* below), and the text is sent like a typed question. A recording that is
+  silent is not sent at all. A ring around the mic button grows with your voice.
+- **Speech recognition.** Whisper runs in the browser with [transformers.js](https://huggingface.co/docs/transformers.js),
+  in a Web Worker, on the graphics card (WebGPU) or else on the processor (WASM). The **speech settings** page
+  (`/settings`, linked from the start screen and the session header) shows what the browser supports and offers
+  three multilingual models: Whisper Base, Small and Large v3 Turbo (WebGPU with 16-bit floats only). Download one
+  (once; the browser keeps it in Cache Storage), pick the one to use, try it out, and remove models you no longer
+  need. The model files come from Hugging Face; the ONNX Runtime WASM files are served by the frontend. Until a
+  model is chosen, the mic button links to the settings and typing still works.
 - **Voice and avatar.** A menu (on the start screen and in the header) picks how the agent answers: *Off* (text
   replies only; you can still talk to it), *Voice only* (female or male) or *Voice and avatar* (female or male). The
   choice is remembered in the browser. It travels as the `voice` participant attribute (`off`, `female` or `male`),
   and changing it during a session sends the `set_voice` RPC. The switch is silent: a spinner shows in the avatar
   window while it happens, and a reply that is being spoken is stopped first (its full text still appears). With
-  *Off*, the agent turns its audio output off, so TTS is skipped. Speech-to-text and push-to-talk keep working.
+  *Off*, the agent turns its audio output off, so TTS is skipped. Push-to-talk keeps working.
 - **Stop button.** While the agent speaks, the *Send* button becomes *Stop*. Clicking it silences the voice and the
   avatar right away (`stop_speaking` RPC), but the reply is still generated to the end. Its full text is streamed
   on the `wiki.reply` topic and replaces the cut-off transcript message, without waiting for speech.
-- **Progress status.** Speech recognition and answering can take several seconds on CPU, so the UI shows each step:
+- **Progress status.** Speech recognition and answering can take several seconds, so the UI shows each step:
   *Hearing you…*, *Processing your speech…* and *Preparing an answer…*, with a seconds counter. The status appears
-  in the header, as a banner over the avatar, and as a placeholder message in the transcript. The agent publishes the
-  speech-to-text step as its `speech_state` participant attribute (`hearing`, `transcribing` or `idle`).
+  in the header, as a banner over the avatar, and as a placeholder message in the transcript.
 - **Conversation history.** Each conversation in which you said or typed something is saved in the browser
   (`localStorage`, the latest 50), and listed in a sidebar grouped by *Today*, *Yesterday*, *Previous 7 days* and
   month. Click one to read it back, delete it, or *Continue conversation*: the agent then gets the earlier turns
   (the latest ones that fit in 14 KB) through the `restore_history` RPC, so it can refer back to them. History is not
   shared between browsers, and nothing is stored on the server.
-- **Hotwords.** `vocab/hotwords.txt` (maintained by hand) and `vocab/hotwords.generated.txt` (generated by
-  `npm run vocab`) are combined into the Whisper prompt. Transcripts that nearly match a hotword are corrected to it.
 - **Avatar.** An animated photo of a man or a woman in business clothes, in front of an office building (no model
   files to download). The face is cut out of the photo onto a WebGL triangle mesh that is bent per frame for the jaw,
   lips, blinks, gaze, brows and head sway, over a still background with the person filled in
@@ -72,8 +78,9 @@ Browser (Next.js)                                   agent (Node, @livekit/agents
 
 - Node.js 24 or later and npm (the agent runs TypeScript directly with Node's type stripping).
 - Docker with Compose, for the compose setup or for individual services.
-- About 8 GB of free RAM for the default models. The first start downloads roughly 1 GB of speech models and your
-  LLM.
+- About 8 GB of free RAM for the default models. The first start downloads the TTS models and your LLM; the first
+  use of the speech settings downloads a Whisper model into the browser (80 MB to 600 MB).
+- A browser with WebGPU (Chrome, Edge) for the best speech recognition; others fall back to the slower WASM.
 
 ## Quick start with docker compose
 
@@ -83,12 +90,12 @@ cp .env.example .env          # optional, every setting has a default
 docker compose up --build
 ```
 
-Then open <http://localhost:3000> (or the port in `FRONTEND_PORT`), pick a language and press **Start**.
+Then open <http://localhost:3000> (or the port in `FRONTEND_PORT`), open **Speech settings** to download a speech
+model, pick a language and press **Start**.
 
 Compose starts `livekit`, `speaches`, `agent` and `frontend`. On the first run, `speaches-models` downloads the
-speech models (about 1 GB) and the agent starts once that has finished; allow several minutes. Give Docker at least
-4 CPUs and 6–8 GB of memory (Colima: `colima start --cpu 4 --memory 8`); with less, Speaches crashes while loading
-Whisper.
+TTS models and the agent starts once that has finished; allow a few minutes. Give Docker at least 4 CPUs and 6 GB of
+memory (Colima: `colima start --cpu 4 --memory 6`).
 
 **LLM.** By default the agent uses Ollama running **natively on the host** (`LLM_BASE_URL_DOCKER`, default
 `http://host.docker.internal:11434/v1`). On macOS this is strongly recommended, because Docker has no access to
@@ -117,8 +124,9 @@ docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-Browsers only allow the microphone on https, so put the frontend (3000) and LiveKit signalling (7880) behind a TLS
-reverse proxy, and open 7881/tcp and 7882/udp for WebRTC media. The frontend has no authentication (see below).
+Browsers only allow the microphone and WebGPU on https, so put the frontend (3000) and LiveKit signalling (7880)
+behind a TLS reverse proxy, and open 7881/tcp and 7882/udp for WebRTC media. The frontend has no authentication (see
+below).
 
 ## Native development
 
@@ -127,7 +135,7 @@ Run the services natively, or in containers:
 ```bash
 # LiveKit (dev keys devkey/secret)
 brew install livekit && livekit-server --dev              # or: docker compose up livekit
-# Speaches (STT + TTS)
+# Speaches (TTS)
 docker compose up -d speaches-models                       # starts Speaches on :8000 and downloads the models
 # LLM
 ollama pull qwen3:4b-instruct                              # or any model, see below
@@ -140,7 +148,7 @@ Then install the dependencies:
 ```bash
 npm install
 cp .env.example .env          # optional
-npm run smoke                 # checks wiki, LiveKit, LLM and a TTS→STT round trip per language
+npm run smoke                 # checks wiki, LiveKit, LLM and TTS per language and voice
 ```
 
 In two terminals, start the agent and the frontend, then open <http://localhost:3000> (or the port in `FRONTEND_PORT`):
@@ -152,7 +160,8 @@ npm run dev:frontend
 
 Both read the `.env` in the repo root.
 
-The frontend is built with webpack (`next dev --webpack` / `next build --webpack`, already in the scripts).
+The frontend is built with webpack (`next dev --webpack` / `next build --webpack`, already in the scripts). Both
+scripts first copy the ONNX Runtime WASM files to `frontend/public/speech/ort/`.
 
 ## Configuration
 
@@ -163,7 +172,6 @@ The frontend is built with webpack (`next dev --webpack` / `next build --webpack
 | `WIKI_SOURCES` | one `sample-wiki` source | Ordered JSON array of `{ "id", "name", "path" } entries. Relative paths resolve from the repo root; native runs may also use absolute paths. For Compose, custom folders must be under `./wikis`. First source wins ambiguous title lookups; search includes every source. |
 | `LLM_MODEL` | `qwen3:4b-instruct` | Any model with tool calling on an OpenAI-compatible server. |
 | `LLM_REASONING_EFFORT` | unset | Set to `none` for reasoning models such as `qwen3.5` for a much faster first word. |
-| `STT_MODEL` | `Systran/faster-whisper-small` | Use `Systran/faster-whisper-medium` for noticeably better Dutch, at the cost of speed. |
 | `TTS_EN_VOICE` | `af_heart` | Female English voice: any [Kokoro voice](https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md). |
 | `TTS_NL_MODEL` / `TTS_NL_VOICE` | `speaches-ai/piper-nl_BE-nathalie-medium` / `nathalie` | Female Dutch voice. Other Dutch Piper voices: `nl_NL-mls-medium`, `nl_NL-mls_5809-low`, … |
 | `TTS_EN_MALE_VOICE` | `am_michael` | Male English voice (`TTS_EN_MALE_MODEL` defaults to Kokoro). |
@@ -183,31 +191,20 @@ Search can return pages from both sources. If an unqualified title matches more 
 source wins; source chips and source-qualified page paths still open the exact page. Each source's root `index.md` and
 `log.md` are included with its source label.
 
-With compose, if you change `STT_MODEL` or the TTS models, Speaches preloads the new ones on its next start.
+With compose, if you change the TTS models, Speaches preloads the new ones on its next start. The speech recognition
+model is chosen per browser on the speech settings page.
 
-### Models and latency (CPU)
+### Models and latency
 
-On a laptop CPU, expect the first spoken word about 2–6 s after you stop talking. STT takes about 1–2 s, and most
-of the rest is the LLM's first sentence. The first question after a start is slower because the models are still
-loading.
+Expect the first spoken word a few seconds after you release the mic button. Speech recognition in the browser is
+much faster on WebGPU than with WASM, and a bigger Whisper model takes longer; most of the rest is the LLM's first
+sentence. The first question after a start is slower because the models are still loading.
 
 - `qwen3:4b-instruct`: fast and decent at tool use; Dutch is acceptable.
 - `qwen3.5:9b` with `LLM_REASONING_EFFORT=none`: better answers and better Dutch, but slower. This is the model the
   evals were tuned against.
 - Smaller models tend to read commands aloud instead of calling `showOnScreen`. The agent catches this: a reply
   that contains code is shown as an answer card anyway.
-
-### Hotwords
-
-```bash
-npm run vocab                                   # from WIKI_SOURCES
-npm run vocab -- --wiki ./wikis/product --wiki ./wikis/engineering  # explicit roots override WIKI_SOURCES
-npm run vocab -- --repo ../my-big-repo          # also mine identifiers from the source repo
-```
-
-This writes `vocab/hotwords.generated.txt`. Terms you put in `vocab/hotwords.txt` (one per line, `#` for comments)
-always come first. The Whisper prompt holds only about 200 tokens, so keep the manual list focused on terms Whisper
-gets wrong. Restart the agent after changing either file. Compose mounts `./vocab` into the agent container.
 
 ### Voices
 
@@ -240,10 +237,10 @@ answer.
 ## Repository layout
 
 ```
-agent/        LiveKit agent: src/ (wikiAgent, tools, prompts, mood, speechFilter, vocab, language, wiki/),
-              scripts/ (buildVocab, smoke), test/ (unit + evals)
-frontend/     Next.js app: token + wiki API routes, cartoon avatar, transcript, answer cards
-vocab/        hotwords.txt (manual), hotwords.generated.txt (npm run vocab)
+agent/        LiveKit agent: src/ (wikiAgent, tools, prompts, mood, speechFilter, language, wiki/),
+              scripts/ (smoke), test/ (unit + evals)
+frontend/     Next.js app: token + wiki API routes, speech settings, cartoon avatar, transcript, answer cards;
+              lib/stt/ + workers/ for speech recognition in the browser
 sample-wiki/  small example wiki used by default and by the tests
 docker-compose.yml, docker-compose.prod.yml, .env.example
 ```
@@ -255,8 +252,8 @@ docker-compose.yml, docker-compose.prod.yml, .env.example
   `frontend/app/api/token` and real LiveKit keys before sharing it.
 - **Other machines.** To use it from another machine, set `LIVEKIT_PUBLIC_URL` to a URL the browser can reach, and
   change `--node-ip` in `docker-compose.yml` to the host's LAN IP.
-- **Dutch STT.** `faster-whisper-small` handles Dutch that is full of English technical terms poorly. Hotwords help;
-  `faster-whisper-medium` helps more.
+- **Dutch speech recognition.** Whisper Base handles Dutch that is full of English technical terms poorly; Small is
+  better and Large v3 Turbo best. Identifiers such as `getUserByID` may still come out garbled.
 - **Language detection.** The language comes from the selector. Automatic detection is not implemented yet.
 - **Licenses.** TalkingHead (its English lip-sync rules) is MIT, Kokoro is Apache-2.0, and the Piper voices each
   have their own license (see their model cards).

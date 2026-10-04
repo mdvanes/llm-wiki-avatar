@@ -4,8 +4,7 @@ FROM node:24-slim
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Workspace manifests first for layer caching. The VAD and turn-detector weights ship inside
-# @livekit/local-inference, so no model download step is needed.
+# Workspace manifests first for layer caching.
 COPY package.json package-lock.json ./
 COPY agent/package.json agent/
 COPY frontend/package.json frontend/
@@ -14,7 +13,6 @@ RUN npm ci -w agent --omit=dev --no-audit --no-fund && npm cache clean --force
 COPY agent/src agent/src
 COPY agent/scripts agent/scripts
 COPY agent/tsconfig.json agent/
-COPY vocab vocab
 COPY sample-wiki sample-wiki
 
 USER node
