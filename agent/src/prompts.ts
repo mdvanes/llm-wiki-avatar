@@ -4,13 +4,10 @@ import type { WikiStore } from './wiki/store.ts';
 
 /** The wiki's index.md (truncated), or a generated page list when there is no index. */
 export function wikiOverview(store: WikiStore, maxChars: number): string {
-  const index = store.index();
-  const text = index
-    ? index.content
-    : store
-        .pages()
-        .map((p) => `- ${p.title} (${p.path})`)
-        .join('\n');
+  const indexes = store.indexes();
+  const text = indexes.length
+    ? indexes.map((page) => `# ${page.sourceName} (${page.sourceId})\n${page.content}`).join('\n\n')
+    : store.pages().map((page) => `- ${page.title} (${page.sourceName}: ${page.sourceId}:${page.path})`).join('\n');
   return text.length > maxChars ? `${text.slice(0, maxChars)}\n[... index truncated ...]` : text;
 }
 
@@ -48,7 +45,7 @@ export function buildWikiContext(hits: SearchHit[], maxChars: number): string | 
   if (hits.length === 0) return undefined;
   let out = 'Wiki context (best matching excerpts for the next question; may be incomplete):';
   for (const hit of hits) {
-    const block = `\n\n## ${hit.title} (${hit.path})\n${hit.snippet}`;
+    const block = `\n\n## ${hit.title} (${hit.sourceName}: ${hit.sourceId}:${hit.path})\n${hit.snippet}`;
     if (out.length + block.length > maxChars) break;
     out += block;
   }

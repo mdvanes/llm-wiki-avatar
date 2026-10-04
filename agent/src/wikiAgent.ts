@@ -286,9 +286,12 @@ export class WikiAgent extends voice.Agent {
           // Pages the reply links to come first; they are what the answer is based on.
           const linked = parseWikilinks(reply).flatMap((name) => {
             const page = store.resolve(name);
-            return page ? [{ path: page.path, title: page.title }] : [];
+            return page ? [{ sourceId: page.sourceId, sourceName: page.sourceName, path: page.path, title: page.title }] : [];
           });
-          const all = [...linked, ...sources.list()].filter((s, i, a) => a.findIndex((x) => x.path === s.path) === i);
+          const all = [...linked, ...sources.list()].filter(
+            (source, index, allSources) =>
+              allSources.findIndex((candidate) => candidate.sourceId === source.sourceId && candidate.path === source.path) === index,
+          );
           publisher.answer({ markdown: reply.trim(), sources: all });
           sources.markShown();
         }

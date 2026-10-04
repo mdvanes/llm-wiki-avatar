@@ -26,6 +26,29 @@ const bool = z
   .enum(['true', 'false', '1', '0', 'yes', 'no'])
   .transform((v) => v === 'true' || v === '1' || v === 'yes');
 
+const wikiSourcesSchema = z
+  .array(
+    z.object({
+      id: z.string().regex(/^[a-zA-Z0-9_-]+$/),
+      name: z.string().min(1),
+      path: z.string().min(1),
+    }),
+  )
+  .min(1)
+  .superRefine((sources, ctx) => {
+    const ids = new Set<string>();
+    for (const [index, source] of sources.entries()) {
+      if (ids.has(source.id)) ctx.addIssue({ code: 'custom', path: [index, 'id'], message: 'IDs must be unique' });
+      ids.add(source.id);
+    }
+  });
+
+export interface WikiSource {
+  id: string;
+  name: string;
+  path: string;
+}
+
 const schema = z.object({
   AGENT_NAME: z.string().default('llm-wiki-avatar'),
   // Defaults match `livekit-server --dev`.
@@ -33,7 +56,7 @@ const schema = z.object({
   LIVEKIT_API_KEY: z.string().default('devkey'),
   LIVEKIT_API_SECRET: z.string().default('secret'),
 
-  WIKI_DIR: z.string().default(resolve(REPO_ROOT, 'sample-wiki')),
+  WIKI_SOURCES: z.string().default('[{"id":"wiki","name":"Wiki","path":"sample-wiki"}]'),
   VOCAB_DIR: z.string().default(resolve(REPO_ROOT, 'vocab')),
   WIKI_CONTEXT_CHARS: z.coerce.number().int().positive().default(1800),
   WIKI_INDEX_MAX_CHARS: z.coerce.number().int().positive().default(4000),
@@ -82,16 +105,25 @@ const schema = z.object({
   DEFAULT_VOICE: z.enum(VOICES).default('female'),
 });
 
-export type Config = z.infer<typeof schema>;
+export type Config = Omit<z.infer<typeof schema>, 'WIKI_SOURCES'> & { WIKI_SOURCES: WikiSource[] };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const cleaned = Object.fromEntries(
     Object.entries(env).filter(([, v]) => v !== undefined && v !== ''),
   );
   const cfg = schema.parse(cleaned);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(cfg.WIKI_SOURCES);
+  } catch {
+    throw new Error('WIKI_SOURCES must be a JSON array of { id, name, path } objects');
+  }
   return {
     ...cfg,
-    WIKI_DIR: resolve(REPO_ROOT, cfg.WIKI_DIR),
+    WIKI_SOURCES: wikiSourcesSchema.parse(parsed).map((source) => ({
+      ...source,
+      path: resolve(REPO_ROOT, source.path),
+    })),
     VOCAB_DIR: resolve(REPO_ROOT, cfg.VOCAB_DIR),
   };
 }

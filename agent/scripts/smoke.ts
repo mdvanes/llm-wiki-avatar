@@ -35,10 +35,10 @@ const PHRASES = {
 } as const;
 
 await check('wiki', async () => {
-  const store = new WikiStore(cfg.WIKI_DIR);
+  const store = new WikiStore(cfg.WIKI_SOURCES);
   await store.load();
-  if (store.size === 0) throw new Error(`no markdown pages in ${cfg.WIKI_DIR}`);
-  return `${store.size} pages in ${cfg.WIKI_DIR}`;
+  if (store.size === 0) throw new Error(`no markdown pages in ${cfg.WIKI_SOURCES.map((source) => source.path).join(', ')}`);
+  return `${store.size} pages across ${store.sources.length} wiki source(s)`;
 });
 
 await check('livekit', async () => {

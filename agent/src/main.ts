@@ -63,7 +63,7 @@ export default defineAgent({
     const logger = log().child({ component: 'llm-wiki-avatar' });
     const profiles = languageProfiles(cfg);
 
-    const wiki = await Wiki.open(cfg.WIKI_DIR, {
+    const wiki = await Wiki.open(cfg.WIKI_SOURCES, {
       poll: cfg.WIKI_WATCH_POLL,
       onReindex: (pages) => {
         logger.info({ pages }, 'wiki reindexed');
@@ -71,7 +71,7 @@ export default defineAgent({
       },
     });
     ctx.addShutdownCallback(() => wiki.close());
-    logger.info({ dir: cfg.WIKI_DIR, pages: wiki.store.size }, 'wiki loaded');
+    logger.info({ sources: wiki.store.sources, pages: wiki.store.size }, 'wiki loaded');
 
     const vocabulary = loadVocabulary(cfg.VOCAB_DIR);
     const sttPrompt = buildSttPrompt(vocabulary);

@@ -1,6 +1,6 @@
 import { type FSWatcher, watch } from 'chokidar';
 import { WikiSearch } from './search.ts';
-import { WikiStore } from './store.ts';
+import { type WikiSource, WikiStore } from './store.ts';
 
 export interface WikiOptions {
   /** Poll the file system instead of using native events (useful for Docker bind mounts). */
@@ -13,17 +13,17 @@ export interface WikiOptions {
 export class Wiki {
   readonly store: WikiStore;
   #search!: WikiSearch;
-  #watcher?: FSWatcher;
+  #watchers: FSWatcher[] = [];
   #timer?: NodeJS.Timeout;
   #opts: WikiOptions;
 
-  private constructor(root: string, opts: WikiOptions) {
-    this.store = new WikiStore(root);
+  private constructor(sources: string | WikiSource[], opts: WikiOptions) {
+    this.store = new WikiStore(sources);
     this.#opts = opts;
   }
 
-  static async open(root: string, opts: WikiOptions = {}): Promise<Wiki> {
-    const wiki = new Wiki(root, opts);
+  static async open(sources: string | WikiSource[], opts: WikiOptions = {}): Promise<Wiki> {
+    const wiki = new Wiki(sources, opts);
     await wiki.store.load();
     wiki.#search = new WikiSearch(wiki.store);
     return wiki;
@@ -35,31 +35,27 @@ export class Wiki {
 
   /** Starts watching the wiki folder; changes are applied and re-indexed after a short debounce. */
   watch(): void {
-    if (this.#watcher) return;
-    this.#watcher = watch(this.store.root, {
-      ignoreInitial: true,
-      usePolling: this.#opts.poll ?? false,
-      interval: 1000,
-      awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 100 },
-      ignored: (path, stats) =>
-        /(^|[/\\])(\.|node_modules)/.test(path.slice(this.store.root.length)) ||
-        (stats?.isFile() === true && !path.toLowerCase().endsWith('.md')),
-    });
-    const onChange = async (path: string) => {
-      await this.store.reloadFile(path).catch(() => undefined);
-      this.#scheduleReindex();
-    };
-    this.#watcher
-      .on('add', onChange)
-      .on('change', onChange)
-      .on('unlink', (path) => {
-        try {
-          this.store.removeFile(path);
-        } catch {
-          return;
-        }
+    if (this.#watchers.length) return;
+    this.#watchers = this.store.roots.map(({ id, path: root }) => {
+      const watcher = watch(root, {
+        ignoreInitial: true,
+        usePolling: this.#opts.poll ?? false,
+        interval: 1000,
+        awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 100 },
+        ignored: (path, stats) =>
+          /(^|[/\\])(\.|node_modules)/.test(path.slice(root.length)) ||
+          (stats?.isFile() === true && !path.toLowerCase().endsWith('.md')),
+      });
+      const onChange = async (file: string) => {
+        await this.store.reloadFile(file, id).catch(() => undefined);
+        this.#scheduleReindex();
+      };
+      watcher.on('add', onChange).on('change', onChange).on('unlink', (file) => {
+        this.store.removeFile(file, id);
         this.#scheduleReindex();
       });
+      return watcher;
+    });
   }
 
   #scheduleReindex(): void {
@@ -72,7 +68,7 @@ export class Wiki {
 
   async close(): Promise<void> {
     clearTimeout(this.#timer);
-    await this.#watcher?.close();
-    this.#watcher = undefined;
+    await Promise.all(this.#watchers.map((watcher) => watcher.close()));
+    this.#watchers = [];
   }
 }

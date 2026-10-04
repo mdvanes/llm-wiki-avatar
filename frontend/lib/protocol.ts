@@ -91,6 +91,8 @@ export const MOODS = ['neutral', 'happy', 'sad', 'confused'] as const;
 export type Mood = (typeof MOODS)[number];
 
 export interface Source {
+  sourceId?: string;
+  sourceName?: string;
   path: string;
   title: string;
 }

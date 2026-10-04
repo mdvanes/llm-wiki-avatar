@@ -29,6 +29,8 @@ export const RPC_RESTORE_HISTORY = 'restore_history';
 export const RPC_STOP_SPEAKING = 'stop_speaking';
 
 export interface Source {
+  sourceId: string;
+  sourceName: string;
   path: string;
   title: string;
 }

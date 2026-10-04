@@ -1,20 +1,20 @@
 import { initializeLogger, type llm, voice } from '@livekit/agents';
+import { resolve } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { isVoice, loadConfig } from '../src/config.ts';
+import { REPO_ROOT, isVoice, loadConfig } from '../src/config.ts';
 import { languageProfiles } from '../src/language.ts';
 import { buildInstructions, buildWikiContext, wikiOverview } from '../src/prompts.ts';
 import { RecordingPublisher, TOPICS } from '../src/publisher.ts';
 import { SourceTracker, listRecentChanges, readPage, searchWiki, showOnScreen, truncate } from '../src/tools.ts';
 import { WikiAgent, containsCode } from '../src/wikiAgent.ts';
 import { Wiki } from '../src/wiki/wiki.ts';
-import { SAMPLE_WIKI } from './helpers.ts';
 
 initializeLogger({ pretty: false, level: 'warn' });
 
-const cfg = loadConfig({ WIKI_DIR: SAMPLE_WIKI });
+const cfg = loadConfig();
 let wiki: Wiki;
 beforeAll(async () => {
-  wiki = await Wiki.open(SAMPLE_WIKI);
+  wiki = await Wiki.open(cfg.WIKI_SOURCES);
 });
 
 function deps() {
@@ -28,6 +28,19 @@ describe('config and language profiles', () => {
     expect(c.LLM_MODEL).toBe('qwen3:4b-instruct');
     expect(c.DEFAULT_LANGUAGE).toBe('nl');
     expect(c.STT_FUZZY_CORRECTION).toBe(false);
+  });
+
+  it('parses one or more ordered wiki sources relative to the repo root', () => {
+    const single = loadConfig({});
+    expect(single.WIKI_SOURCES).toEqual([{ id: 'wiki', name: 'Wiki', path: resolve(REPO_ROOT, 'sample-wiki') }]);
+    const multiple = loadConfig({
+      WIKI_SOURCES: '[{"id":"team-a","name":"Team A","path":"wikis/team-a"},{"id":"team-b","name":"Team B","path":"wikis/team-b"}]',
+    });
+    expect(multiple.WIKI_SOURCES?.map(({ id, path }) => ({ id, path }))).toEqual([
+      { id: 'team-a', path: resolve(REPO_ROOT, 'wikis/team-a') },
+      { id: 'team-b', path: resolve(REPO_ROOT, 'wikis/team-b') },
+    ]);
+    expect(() => loadConfig({ WIKI_SOURCES: 'not-json' })).toThrow(/WIKI_SOURCES/);
   });
 
   it('rejects unsupported languages', () => {
@@ -83,13 +96,13 @@ describe('prompts', () => {
   });
 
   it('truncates the overview', () => {
-    expect(wikiOverview(wiki.store, 50)).toMatch(/^# Acme Platform Wiki[\s\S]{0,60}\[\.\.\. index truncated \.\.\.\]$/);
+    expect(wikiOverview(wiki.store, 50)).toMatch(/^# Wiki \(wiki\)\n# Acme Platform Wiki[\s\S]{0,60}\[\.\.\. index truncated \.\.\.\]$/);
   });
 
   it('builds a bounded wiki context from search hits', () => {
     const hits = wiki.search.search('stripe webhook retries', 4);
     const context = buildWikiContext(hits, 600)!;
-    expect(context).toContain('## Billing Service (pages/billing-service.md)');
+    expect(context).toContain('## Billing Service (Wiki: wiki:pages/billing-service.md)');
     expect(context.length).toBeLessThanOrEqual(600);
     expect(buildWikiContext([], 600)).toBeUndefined();
   });
@@ -99,9 +112,17 @@ describe('tools', () => {
   it('searchWiki lists hits and publishes sources', () => {
     const d = deps();
     const out = searchWiki(d, 'invoice scheduler');
-    expect(out).toMatch(/^1\. Billing Service \(pages\/billing-service\.md\)/);
+    expect(out).toMatch(/^1\. Billing Service \(Wiki: wiki:pages\/billing-service\.md\)/);
     expect(d.publisher.events).toEqual([
-      { topic: TOPICS.sources, payload: { turn: 0, sources: expect.arrayContaining([{ path: 'pages/billing-service.md', title: 'Billing Service' }]) } },
+      {
+        topic: TOPICS.sources,
+        payload: {
+          turn: 0,
+          sources: expect.arrayContaining([
+            expect.objectContaining({ sourceId: 'wiki', path: 'pages/billing-service.md', title: 'Billing Service' }),
+          ]),
+        },
+      },
     ]);
     expect(searchWiki(d, 'zzzqqq')).toContain('No wiki pages match');
   });
@@ -109,7 +130,7 @@ describe('tools', () => {
   it('readPage returns bounded content and suggestions', () => {
     const d = { ...deps(), cfg: { ...cfg, WIKI_PAGE_MAX_CHARS: 200 } };
     const out = readPage(d, 'auth service');
-    expect(out).toMatch(/^Page: Auth Service \(pages\/auth-service\.md\)/);
+    expect(out).toMatch(/^Page: Auth Service \(Wiki: wiki:pages\/auth-service\.md\)/);
     expect(out).toContain('[... page truncated ...]');
     expect(readPage(d, 'Payments Gateway Service')).toMatch(/No page named/);
     expect(readPage(d, '../../package.json')).toMatch(/No page named/);
@@ -129,7 +150,7 @@ describe('tools', () => {
       topic: TOPICS.answer,
       payload: {
         markdown: '```bash\nmake dev\n```',
-        sources: [{ path: 'pages/local-development.md', title: 'Local Development' }],
+        sources: [{ sourceId: 'wiki', sourceName: 'Wiki', path: 'pages/local-development.md', title: 'Local Development' }],
       },
     });
   });
@@ -138,13 +159,13 @@ describe('tools', () => {
     const publisher = new RecordingPublisher();
     const tracker = new SourceTracker(publisher);
     tracker.newTurn();
-    tracker.add([{ path: 'a.md', title: 'A' }]);
-    tracker.add([{ path: 'a.md', title: 'A' }]);
+    tracker.add([{ sourceId: 'wiki', sourceName: 'Wiki', path: 'a.md', title: 'A' }]);
+    tracker.add([{ sourceId: 'wiki', sourceName: 'Wiki', path: 'a.md', title: 'A' }]);
     tracker.newTurn();
-    tracker.add([{ path: 'b.md', title: 'B' }]);
+    tracker.add([{ sourceId: 'wiki', sourceName: 'Wiki', path: 'b.md', title: 'B' }]);
     expect(publisher.events.map((e) => e.payload)).toEqual([
-      { turn: 1, sources: [{ path: 'a.md', title: 'A' }] },
-      { turn: 2, sources: [{ path: 'b.md', title: 'B' }] },
+      { turn: 1, sources: [{ sourceId: 'wiki', sourceName: 'Wiki', path: 'a.md', title: 'A' }] },
+      { turn: 2, sources: [{ sourceId: 'wiki', sourceName: 'Wiki', path: 'b.md', title: 'B' }] },
     ]);
   });
 
@@ -229,7 +250,9 @@ describe('WikiAgent in a session', () => {
       expect(answers).toHaveLength(1);
       expect(answers[0]!.payload).toMatchObject({
         markdown: 'Use `helm rollback <release> <revision>`, see [[Deployment]].',
-        sources: expect.arrayContaining([{ path: 'pages/deployment.md', title: 'Deployment' }]),
+        sources: expect.arrayContaining([
+          expect.objectContaining({ sourceId: 'wiki', path: 'pages/deployment.md', title: 'Deployment' }),
+        ]),
       });
     } finally {
       await session.close();

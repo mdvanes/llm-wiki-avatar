@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -98,6 +98,41 @@ describe('WikiSearch', () => {
 
   it('returns nothing for unrelated queries', () => {
     expect(search.search('zzzqqq', 3)).toEqual([]);
+  });
+});
+
+describe('Multi-source wiki', () => {
+  const tempRoot = join(import.meta.dirname, '..', '..', 'tmp');
+  let firstRoot: string;
+  let secondRoot: string;
+  let wiki: Wiki;
+
+  beforeAll(async () => {
+    await mkdir(tempRoot, { recursive: true });
+    firstRoot = await mkdtemp(join(tempRoot, 'wiki-first-'));
+    secondRoot = await mkdtemp(join(tempRoot, 'wiki-second-'));
+    await mkdir(join(firstRoot, 'pages'));
+    await mkdir(join(secondRoot, 'pages'));
+    await writeFile(join(firstRoot, 'pages', 'shared.md'), '# Shared Page\n\nAlpha feature details.');
+    await writeFile(join(secondRoot, 'pages', 'shared.md'), '# Shared Page\n\nBeta feature details.');
+    wiki = await Wiki.open([
+      { id: 'alpha', name: 'Alpha', path: firstRoot },
+      { id: 'beta', name: 'Beta', path: secondRoot },
+    ]);
+  });
+
+  afterAll(async () => {
+    await wiki?.close();
+    await Promise.all([
+      rm(firstRoot, { recursive: true, force: true }),
+      rm(secondRoot, { recursive: true, force: true }),
+    ]);
+  });
+
+  it('keeps duplicate relative paths distinct in search and source-qualified resolution', () => {
+    expect(wiki.search.search('shared page', 5).map((hit) => hit.sourceId)).toEqual(['alpha', 'beta']);
+    expect(wiki.store.resolve('pages/shared.md')?.sourceId).toBe('alpha');
+    expect(wiki.store.resolve('pages/shared.md', 'beta')?.content).toContain('Beta feature');
   });
 });
 

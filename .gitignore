@@ -11,3 +11,4 @@ coverage/
 frontend/public/avatars/*.glb
 frontend/next-env.d.ts
 *.tsbuildinfo
+tmp/

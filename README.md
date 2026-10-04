@@ -17,8 +17,9 @@ Browser (Next.js)                                   agent (Node, @livekit/agents
 
 ## How it works
 
-- **Wiki.** The agent reads a folder of markdown files (`WIKI_DIR`) and indexes it with BM25. `index.md` goes into
-  the prompt, and on every turn the best matching excerpts are added automatically. The model can also call
+- **Wiki.** The agent reads one or more folders of markdown files and indexes them together with BM25. Configure
+  all sources, including a single wiki, with `WIKI_SOURCES`. Each source's `index.md` goes
+  into the prompt, and on every turn the best matching excerpts are added automatically. The model can also call
   `searchWiki`, `readPage`, `listRecentChanges` and `showOnScreen`. The index updates while you edit the wiki.
 - **Voice-first answers.** The model answers in 2–4 spoken sentences. Code, commands and markdown are removed
   before TTS. Replies that contain code, and anything sent through `showOnScreen`, appear as an answer card. The
@@ -78,7 +79,7 @@ Browser (Next.js)                                   agent (Node, @livekit/agents
 
 ```bash
 cp .env.example .env          # optional, every setting has a default
-# Point WIKI_PATH at your wiki folder (default: ./sample-wiki)
+# Custom wiki folders for Compose go under ./wikis; list them in WIKI_SOURCES.
 docker compose up --build
 ```
 
@@ -108,7 +109,8 @@ of memory). It is in the `premium` profile: `docker compose --profile premium up
 `ghcr.io/mdvanes/llm-wiki-avatar-agent` and `ghcr.io/mdvanes/llm-wiki-avatar-frontend` instead of building from the
 repo, and runs LiveKit with real keys instead of dev mode. Set these in `.env` (compose refuses to start without them):
 `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` (at least 32 characters, e.g. `openssl rand -base64 32`), `LIVEKIT_NODE_IP`
-(the host IP browsers can reach), `LIVEKIT_PUBLIC_URL` (e.g. `wss://livekit.example.com`) and `WIKI_PATH`.
+(the host IP browsers can reach), and `LIVEKIT_PUBLIC_URL` (e.g. `wss://livekit.example.com`). Put custom wiki folders
+under `./wikis` beside the Compose file and list them in `WIKI_SOURCES`.
 
 ```bash
 docker compose -f docker-compose.prod.yml pull
@@ -158,7 +160,7 @@ The frontend is built with webpack (`next dev --webpack` / `next build --webpack
 
 | Setting | Default | Notes |
 |---|---|---|
-| `WIKI_DIR` / `WIKI_PATH` | `sample-wiki` | Wiki folder, for native runs and for compose respectively. |
+| `WIKI_SOURCES` | one `sample-wiki` source | Ordered JSON array of `{ "id", "name", "path" } entries. Relative paths resolve from the repo root; native runs may also use absolute paths. For Compose, custom folders must be under `./wikis`. First source wins ambiguous title lookups; search includes every source. |
 | `LLM_MODEL` | `qwen3:4b-instruct` | Any model with tool calling on an OpenAI-compatible server. |
 | `LLM_REASONING_EFFORT` | unset | Set to `none` for reasoning models such as `qwen3.5` for a much faster first word. |
 | `STT_MODEL` | `Systran/faster-whisper-small` | Use `Systran/faster-whisper-medium` for noticeably better Dutch, at the cost of speed. |
@@ -170,6 +172,16 @@ The frontend is built with webpack (`next dev --webpack` / `next build --webpack
 | `KOKORO_URL` | unset (compose: `http://kokoro:8880`) | Kokoro-FastAPI for the premium avatar's word-timed lip-sync. Unset: premium uses the regular female voice and loudness lip-sync. |
 | `DEFAULT_VOICE` | `female` | `off`, `female` or `male`: the voice until the user picks one in the browser. |
 | `DEFAULT_LANGUAGE` | `en` | Used when the browser sends no language. |
+
+For example, put two wiki folders under `./wikis`, then configure:
+
+```dotenv
+WIKI_SOURCES='[{"id":"product","name":"Product Wiki","path":"wikis/product"},{"id":"engineering","name":"Engineering Wiki","path":"wikis/engineering"}]'
+```
+
+Search can return pages from both sources. If an unqualified title matches more than one source, the first configured
+source wins; source chips and source-qualified page paths still open the exact page. Each source's root `index.md` and
+`log.md` are included with its source label.
 
 With compose, if you change `STT_MODEL` or the TTS models, Speaches preloads the new ones on its next start.
 
@@ -188,7 +200,8 @@ loading.
 ### Hotwords
 
 ```bash
-npm run vocab                                   # from WIKI_DIR
+npm run vocab                                   # from WIKI_SOURCES
+npm run vocab -- --wiki ./wikis/product --wiki ./wikis/engineering  # explicit roots override WIKI_SOURCES
 npm run vocab -- --repo ../my-big-repo          # also mine identifiers from the source repo
 ```
 

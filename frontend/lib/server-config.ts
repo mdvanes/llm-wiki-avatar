@@ -43,13 +43,41 @@ export function serverConfig() {
     loadRootEnv();
     loaded = true;
   }
+  const wikiSources = parseWikiSources(process.env.WIKI_SOURCES);
   return {
     livekitUrl: required('LIVEKIT_URL', 'ws://localhost:7880'),
     apiKey: required('LIVEKIT_API_KEY', 'devkey'),
     apiSecret: required('LIVEKIT_API_SECRET', 'secret'),
     agentName: required('AGENT_NAME', 'llm-wiki-avatar'),
-    // Relative paths are relative to the repo root, as for the agent.
-    wikiDir: resolve(ROOT, required('WIKI_DIR', 'sample-wiki')),
+    wikiSources,
     defaultPresentation: defaultPresentation(),
   };
+}
+
+function parseWikiSources(raw: string | undefined) {
+  if (!raw) return [{ id: 'wiki', name: 'Wiki', path: resolve(ROOT, 'sample-wiki') }];
+  let sources: unknown;
+  try {
+    sources = JSON.parse(raw);
+  } catch {
+    throw new Error('WIKI_SOURCES must be a JSON array of { id, name, path } objects');
+  }
+  if (!Array.isArray(sources) || sources.length === 0) throw new Error('WIKI_SOURCES must contain at least one source');
+  const ids = new Set<string>();
+  return sources.map((source: unknown) => {
+    const item = source as { id?: unknown; name?: unknown; path?: unknown };
+    if (
+      typeof item?.id !== 'string' ||
+      !/^[a-zA-Z0-9_-]+$/.test(item.id) ||
+      ids.has(item.id) ||
+      typeof item.name !== 'string' ||
+      !item.name.trim() ||
+      typeof item.path !== 'string' ||
+      !item.path
+    ) {
+      throw new Error('WIKI_SOURCES entries require unique IDs, names, and paths');
+    }
+    ids.add(item.id);
+    return { id: item.id, name: item.name, path: resolve(ROOT, item.path) };
+  });
 }

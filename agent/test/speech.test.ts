@@ -157,7 +157,7 @@ describe('SpeachesTTS with word timings', () => {
 
 describe('WikiAgent.setLipsync', () => {
   async function setup(env: Record<string, string> = { KOKORO_URL: 'http://kokoro:8880' }) {
-    const cfg = loadConfig({ WIKI_DIR: SAMPLE_WIKI, SPEACHES_URL: baseURL, ...env });
+       const cfg = loadConfig({ SPEACHES_URL: baseURL, ...env });
     const wiki = await Wiki.open(SAMPLE_WIKI);
     const profiles = languageProfiles(cfg);
     const tts = new SpeachesTTS(profiles.en.voices.female);
@@ -195,7 +195,7 @@ describe('WikiAgent.setLipsync', () => {
 
 describe('WikiAgent.setLanguage', () => {
   it('switches STT language, TTS voice, instructions and notifies the UI', async () => {
-    const cfg = loadConfig({ WIKI_DIR: SAMPLE_WIKI, SPEACHES_URL: baseURL });
+       const cfg = loadConfig({ SPEACHES_URL: baseURL });
     const wiki = await Wiki.open(SAMPLE_WIKI);
     const profiles = languageProfiles(cfg);
     const stt = new openai.STT({ baseURL, apiKey: 'x', model: 'whisper', useRealtime: false, language: 'en' });
@@ -220,7 +220,7 @@ describe('WikiAgent.setLanguage', () => {
 
 describe('WikiAgent.setVoice', () => {
   async function setup(voice?: 'off' | 'female' | 'male') {
-    const cfg = loadConfig({ WIKI_DIR: SAMPLE_WIKI, SPEACHES_URL: baseURL });
+    const cfg = loadConfig({ SPEACHES_URL: baseURL });
     const wiki = await Wiki.open(SAMPLE_WIKI);
     const profiles = languageProfiles(cfg);
     const tts = new SpeachesTTS(profiles.en.voices.female);

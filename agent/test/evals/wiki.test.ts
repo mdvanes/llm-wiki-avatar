@@ -22,7 +22,7 @@ import { SAMPLE_WIKI } from '../helpers.ts';
 
 initializeLogger({ pretty: false, level: 'warn' });
 
-const cfg = loadConfig({ ...process.env, WIKI_DIR: SAMPLE_WIKI });
+const cfg = loadConfig({ ...process.env });
 const reachable = await fetch(`${cfg.LLM_BASE_URL.replace(/\/$/, '')}/models`, {
   headers: { authorization: `Bearer ${cfg.LLM_API_KEY}` },
   signal: AbortSignal.timeout(3000),

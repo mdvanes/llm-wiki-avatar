@@ -3,9 +3,11 @@
 import { useEffect, useState } from 'react';
 import { Markdown } from './Markdown';
 
-export type PageRef = { path: string } | { name: string };
+export type PageRef = { path: string; sourceId?: string } | { name: string; sourceId?: string };
 
 interface Page {
+  sourceId: string;
+  sourceName: string;
   path: string;
   title: string;
   markdown: string;
@@ -21,7 +23,10 @@ interface Props {
 /** Modal that shows a wiki page, with wikilinks navigating inside the viewer. */
 export function PageViewer({ page, closeLabel, onClose, onNavigate }: Props) {
   const [state, setState] = useState<{ page?: Page; error?: string }>({});
-  const query = 'path' in page ? `path=${encodeURIComponent(page.path)}` : `name=${encodeURIComponent(page.name)}`;
+  const query = [
+    'path' in page ? `path=${encodeURIComponent(page.path)}` : `name=${encodeURIComponent(page.name)}`,
+    ...(page.sourceId ? [`sourceId=${encodeURIComponent(page.sourceId)}`] : []),
+  ].join('&');
 
   useEffect(() => {
     const controller = new AbortController();
@@ -54,7 +59,11 @@ export function PageViewer({ page, closeLabel, onClose, onNavigate }: Props) {
         <header className="flex items-center justify-between gap-4 border-b border-border px-5 py-3">
           <div className="min-w-0">
             <h2 className="truncate font-semibold">{state.page?.title ?? ('name' in page ? page.name : page.path)}</h2>
-            {state.page && <p className="truncate text-xs text-muted">{state.page.path}</p>}
+            {state.page && (
+              <p className="truncate text-xs text-muted">
+                {state.page.sourceName}: {state.page.path}
+              </p>
+            )}
           </div>
           <button type="button" onClick={onClose} className="rounded-md px-2 py-1 text-sm text-muted hover:text-fg">
             {closeLabel} ✕
@@ -63,7 +72,11 @@ export function PageViewer({ page, closeLabel, onClose, onNavigate }: Props) {
         <div className="overflow-y-auto px-5 py-4 text-sm">
           {state.error && <p className="text-danger">{state.error}</p>}
           {!state.page && !state.error && <p className="text-muted">…</p>}
-          {state.page && <Markdown onWikiLink={(name) => onNavigate({ name })}>{state.page.markdown}</Markdown>}
+          {state.page && (
+            <Markdown onWikiLink={(name) => onNavigate({ name, sourceId: state.page!.sourceId })}>
+              {state.page.markdown}
+            </Markdown>
+          )}
         </div>
       </div>
     </div>

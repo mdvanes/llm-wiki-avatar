@@ -2,6 +2,9 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 export interface WikiPage {
+  /** Stable identity of the configured wiki containing this page. */
+  sourceId: string;
+  sourceName: string;
   /** Path relative to the wiki root, always with forward slashes. */
   path: string;
   /** File name without the `.md` extension. */
@@ -13,6 +16,12 @@ export interface WikiPage {
   /** Targets of `[[wikilinks]]` found in the page. */
   links: string[];
   mtimeMs: number;
+}
+
+export interface WikiSource {
+  id: string;
+  name: string;
+  path: string;
 }
 
 const IGNORED_DIRS = new Set(['node_modules', '.git', '.obsidian', '.trash']);
@@ -36,7 +45,12 @@ export function parseWikilinks(content: string): string[] {
   return [...links];
 }
 
-export function parsePage(path: string, content: string, mtimeMs = 0): WikiPage {
+export function parsePage(
+  path: string,
+  content: string,
+  mtimeMs = 0,
+  source: Pick<WikiSource, 'id' | 'name'> = { id: 'wiki', name: 'Wiki' },
+): WikiPage {
   const name = path.split('/').pop()!.replace(/\.md$/i, '');
   const headings: string[] = [];
   let title: string | undefined;
@@ -51,6 +65,8 @@ export function parsePage(path: string, content: string, mtimeMs = 0): WikiPage 
     else headings.push(text);
   }
   return {
+    sourceId: source.id,
+    sourceName: source.name,
     path,
     name,
     title: title ?? name,
@@ -61,18 +77,20 @@ export function parsePage(path: string, content: string, mtimeMs = 0): WikiPage 
   };
 }
 
-export class WikiStore {
+class WikiDirectoryStore {
+  readonly source: WikiSource;
   readonly root: string;
   #pages = new Map<string, WikiPage>();
 
-  constructor(root: string) {
-    this.root = resolve(root);
+  constructor(source: WikiSource) {
+    this.source = { ...source, path: resolve(source.path) };
+    this.root = this.source.path;
   }
 
   async load(): Promise<void> {
     const rootStat = await stat(this.root).catch(() => undefined);
     if (!rootStat?.isDirectory()) {
-      throw new Error(`WIKI_DIR does not exist or is not a directory: ${this.root}`);
+      throw new Error(`Wiki source "${this.source.id}" does not exist or is not a directory: ${this.root}`);
     }
     this.#pages.clear();
     for (const rel of await this.#scan('')) {
@@ -111,7 +129,7 @@ export class WikiStore {
     const abs = join(this.root, rel);
     try {
       const [content, st] = await Promise.all([readFile(abs, 'utf8'), stat(abs)]);
-      const page = parsePage(rel, content, st.mtimeMs);
+      const page = parsePage(rel, content, st.mtimeMs, this.source);
       this.#pages.set(rel, page);
       return page;
     } catch {
@@ -157,4 +175,93 @@ export class WikiStore {
   log(): WikiPage | undefined {
     return this.pages().find((p) => p.path.toLowerCase() === 'log.md');
   }
+}
+
+/** Ordered collection of markdown wiki roots. The first source wins ambiguous lookups. */
+export class WikiStore {
+  readonly sources: WikiSource[];
+  #stores: WikiDirectoryStore[];
+
+  constructor(sources: string | WikiSource[]) {
+    const configured =
+      typeof sources === 'string' ? [{ id: 'wiki', name: 'Wiki', path: sources }] : sources;
+    if (configured.length === 0) throw new Error('At least one wiki source must be configured');
+    const ids = new Set<string>();
+    this.sources = configured.map((source) => {
+      if (!/^[a-zA-Z0-9_-]+$/.test(source.id) || ids.has(source.id)) {
+        throw new Error(`Wiki source ID must be unique and contain only letters, digits, _ or -: ${source.id}`);
+      }
+      ids.add(source.id);
+      return { ...source, path: resolve(source.path) };
+    });
+    this.#stores = this.sources.map((source) => new WikiDirectoryStore(source));
+  }
+
+  async load(): Promise<void> {
+    await Promise.all(this.#stores.map((store) => store.load()));
+  }
+
+  get roots(): Array<{ id: string; path: string }> {
+    return this.#stores.map(({ source, root }) => ({ id: source.id, path: root }));
+  }
+
+  pages(): WikiPage[] {
+    return this.#stores.flatMap((store) => store.pages());
+  }
+
+  get size(): number {
+    return this.#stores.reduce((total, store) => total + store.size, 0);
+  }
+
+  toRelative(path: string, sourceId = this.sources[0]!.id): string {
+    return this.#source(sourceId).toRelative(path);
+  }
+
+  async reloadFile(path: string, sourceId = this.sources[0]!.id): Promise<WikiPage | undefined> {
+    return this.#source(sourceId).reloadFile(path);
+  }
+
+  removeFile(path: string, sourceId = this.sources[0]!.id): void {
+    this.#source(sourceId).removeFile(path);
+  }
+
+  /** Finds by source-qualified ID (`sourceId:path`) or unqualified path/name/title. */
+  resolve(query: string, sourceId?: string): WikiPage | undefined {
+    const colon = query.indexOf(':');
+    if (sourceId === undefined && colon > 0) {
+      const possibleId = query.slice(0, colon);
+      if (this.sources.some((source) => source.id === possibleId)) {
+        return this.#source(possibleId).resolve(query.slice(colon + 1));
+      }
+    }
+    if (sourceId !== undefined) return this.#source(sourceId).resolve(query);
+    for (const store of this.#stores) {
+      const page = store.resolve(query);
+      if (page) return page;
+    }
+    return undefined;
+  }
+
+  indexes(): WikiPage[] {
+    return this.#stores.map((store) => store.index()).filter((page): page is WikiPage => !!page);
+  }
+
+  logs(): WikiPage[] {
+    return this.#stores.map((store) => store.log()).filter((page): page is WikiPage => !!page);
+  }
+
+  index(): WikiPage | undefined {
+    return this.indexes()[0];
+  }
+
+  log(): WikiPage | undefined {
+    return this.logs()[0];
+  }
+
+  #source(sourceId: string): WikiDirectoryStore {
+    const store = this.#stores.find((candidate) => candidate.source.id === sourceId);
+    if (!store) throw new Error(`Unknown wiki source: ${sourceId}`);
+    return store;
+  }
+
 }

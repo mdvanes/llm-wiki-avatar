@@ -39,11 +39,12 @@ export class SourceTracker {
     this.#shown = true;
   }
 
-  add(pages: Array<Pick<WikiPage, 'path' | 'title'>>): void {
+  add(pages: Array<Pick<WikiPage, 'sourceId' | 'sourceName' | 'path' | 'title'>>): void {
     let changed = false;
-    for (const { path, title } of pages) {
-      if (!this.#sources.has(path)) {
-        this.#sources.set(path, { path, title });
+    for (const { sourceId, sourceName, path, title } of pages) {
+      const id = `${sourceId}:${path}`;
+      if (!this.#sources.has(id)) {
+        this.#sources.set(id, { sourceId, sourceName, path, title });
         changed = true;
       }
     }
@@ -65,7 +66,7 @@ export function searchWiki(deps: ToolDeps, query: string, limit = 5): string {
   const hits = deps.wiki.search.search(query, limit);
   if (hits.length === 0) return `No wiki pages match "${query}".`;
   deps.sources.add(hits.slice(0, 3));
-  return hits.map((h, i) => `${i + 1}. ${h.title} (${h.path})\n   ${h.snippet}`).join('\n');
+  return hits.map((h, i) => `${i + 1}. ${h.title} (${h.sourceName}: ${h.sourceId}:${h.path})\n   ${h.snippet}`).join('\n');
 }
 
 export function readPage(deps: ToolDeps, name: string): string {
@@ -75,24 +76,31 @@ export function readPage(deps: ToolDeps, name: string): string {
     return `No page named "${name}".${suggestions.length ? ` Did you mean: ${suggestions.join('; ')}?` : ''}`;
   }
   deps.sources.add([page]);
-  return `Page: ${page.title} (${page.path})\n\n${truncate(page.content, deps.cfg.WIKI_PAGE_MAX_CHARS)}`;
+  return `Page: ${page.title} (${page.sourceName}: ${page.sourceId}:${page.path})\n\n${truncate(page.content, deps.cfg.WIKI_PAGE_MAX_CHARS)}`;
 }
 
 export function listRecentChanges(deps: ToolDeps, limit = 5): string {
-  const log = deps.wiki.store.log();
-  if (log) {
-    deps.sources.add([log]);
-    // log.md is expected to have one "## <date or title>" section per change set, newest first.
-    const sections = log.content.split(/\n(?=##\s)/).filter((s) => /^##\s/.test(s));
-    const picked = sections.length ? sections.slice(0, limit) : [log.content];
-    return truncate(picked.join('\n'), deps.cfg.WIKI_PAGE_MAX_CHARS);
+  const logs = deps.wiki.store.logs();
+  if (logs.length) {
+    deps.sources.add(logs);
+    // Each source log is expected to have newest-first "## <date or title>" sections.
+    return truncate(
+      logs
+        .map((log) => {
+          const sections = log.content.split(/\n(?=##\s)/).filter((section) => /^##\s/.test(section));
+          const picked = sections.length ? sections.slice(0, limit) : [log.content];
+          return `# ${log.sourceName}\n${picked.join('\n')}`;
+        })
+        .join('\n\n'),
+      deps.cfg.WIKI_PAGE_MAX_CHARS,
+    );
   }
   const recent = deps.wiki.store
     .pages()
     .sort((a, b) => b.mtimeMs - a.mtimeMs)
     .slice(0, limit);
   return recent
-    .map((p) => `${p.title} (${p.path}) — last modified ${new Date(p.mtimeMs).toISOString().slice(0, 10)}`)
+    .map((p) => `${p.title} (${p.sourceName}: ${p.sourceId}:${p.path}) — last modified ${new Date(p.mtimeMs).toISOString().slice(0, 10)}`)
     .join('\n');
 }
 
@@ -100,7 +108,7 @@ export function showOnScreen(deps: ToolDeps, markdown: string, sourcePaths: stri
   const sources: Source[] = [];
   for (const path of sourcePaths) {
     const page = deps.wiki.store.resolve(path);
-    if (page) sources.push({ path: page.path, title: page.title });
+    if (page) sources.push({ sourceId: page.sourceId, sourceName: page.sourceName, path: page.path, title: page.title });
   }
   deps.publisher.answer({ markdown, sources });
   deps.sources.markShown();
@@ -113,7 +121,7 @@ export function createWikiTools(deps: ToolDeps) {
     searchWiki: llm.tool({
       description:
         'Full-text search over the wiki. Use English keywords and identifiers, even when the user speaks Dutch. ' +
-        'Returns page titles, paths and matching snippets.',
+        'Returns page titles, source-qualified paths and matching snippets. Use the source-qualified path to distinguish duplicate page names.',
       parameters: z.object({
         query: z.string().describe('English search keywords, e.g. "refresh token rotation"'),
       }),
@@ -122,7 +130,7 @@ export function createWikiTools(deps: ToolDeps) {
     readPage: llm.tool({
       description: 'Read the full content of one wiki page by title, file name or path.',
       parameters: z.object({
-        page: z.string().describe('Page title, file name or path, e.g. "Auth Service"'),
+        page: z.string().describe('Page title, file name or source-qualified path such as "team-a:pages/auth-service.md"'),
       }),
       execute: async ({ page }) => readPage(deps, page),
     }),

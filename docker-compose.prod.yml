@@ -8,7 +8,7 @@
 #                                        (e.g. `openssl rand -base64 32`)
 #   LIVEKIT_NODE_IP                      the host IP that browsers can reach (public or LAN IP)
 #   LIVEKIT_PUBLIC_URL                   LiveKit URL as seen from the browser, e.g. wss://livekit.example.com
-#   WIKI_PATH                            host folder with the markdown wiki
+#   WIKI_SOURCES                         optional JSON array of wiki sources; custom folders live under ./wikis
 #
 # Browsers only allow microphone access on https (or localhost), so put the frontend (port 3000) and LiveKit
 # signalling (port 7880) behind a TLS reverse proxy. WebRTC media uses 7881/tcp and 7882/udp directly; open those
@@ -92,7 +92,7 @@ services:
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
       AGENT_NAME: ${AGENT_NAME:-llm-wiki-avatar}
-      WIKI_DIR: /wiki
+      WIKI_SOURCES: "${WIKI_SOURCES:-}"
       # The image contains the repo's vocab/; mount your own below to override it.
       VOCAB_DIR: /app/vocab
       WIKI_WATCH_POLL: ${WIKI_WATCH_POLL:-false}
@@ -114,7 +114,8 @@ services:
       DEFAULT_VOICE: ${DEFAULT_VOICE:-female}
       DEFAULT_LANGUAGE: ${DEFAULT_LANGUAGE:-en}
     volumes:
-      - ${WIKI_PATH:?set WIKI_PATH}:/wiki:ro
+      - ./sample-wiki:/app/sample-wiki:ro
+      - ./wikis:/app/wikis:ro
       # - ./vocab:/app/vocab:ro
     depends_on:
       livekit:
@@ -131,10 +132,11 @@ services:
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
       AGENT_NAME: ${AGENT_NAME:-llm-wiki-avatar}
-      WIKI_DIR: /wiki
+      WIKI_SOURCES: "${WIKI_SOURCES:-}"
       DEFAULT_VOICE: ${DEFAULT_VOICE:-female}
     volumes:
-      - ${WIKI_PATH:?set WIKI_PATH}:/wiki:ro
+      - ./sample-wiki:/app/sample-wiki:ro
+      - ./wikis:/app/wikis:ro
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     depends_on:

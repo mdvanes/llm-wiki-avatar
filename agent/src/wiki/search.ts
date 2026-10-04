@@ -2,6 +2,8 @@ import MiniSearch, { type SearchResult } from 'minisearch';
 import type { WikiPage, WikiStore } from './store.ts';
 
 export interface SearchHit {
+  sourceId: string;
+  sourceName: string;
   path: string;
   title: string;
   score: number;
@@ -55,6 +57,7 @@ interface IndexedDoc {
 export class WikiSearch {
   #store: WikiStore;
   #index!: MiniSearch<IndexedDoc>;
+  #logIds = new Set<string>();
 
   constructor(store: WikiStore) {
     this.#store = store;
@@ -63,7 +66,10 @@ export class WikiSearch {
 
   rebuild(): void {
     // index.md and log.md mention everything briefly; prefer the pages that explain it.
-    const meta = new Set([this.#store.index()?.path, this.#store.log()?.path].filter(Boolean));
+    const indexes = this.#store.indexes();
+    const logs = this.#store.logs();
+    const meta = new Set([...indexes, ...logs].map((page) => `${page.sourceId}:${page.path}`));
+    this.#logIds = new Set(logs.map((page) => `${page.sourceId}:${page.path}`));
     const index = new MiniSearch<IndexedDoc>({
       fields: ['title', 'headings', 'content'],
       storeFields: ['title'],
@@ -79,7 +85,7 @@ export class WikiSearch {
     });
     index.addAll(
       this.#store.pages().map((p) => ({
-        id: p.path,
+        id: `${p.sourceId}:${p.path}`,
         title: p.title,
         headings: p.headings.join('\n'),
         content: p.content,
@@ -95,11 +101,15 @@ export class WikiSearch {
       const page = this.#store.resolve(result.id);
       if (!page) continue;
       hits.push({
+        sourceId: page.sourceId,
+        sourceName: page.sourceName,
         path: page.path,
         title: page.title,
         score: Math.round(result.score * 100) / 100,
         // The log is newest-first, so its most useful excerpt is the top, not the best keyword match.
-        snippet: page === this.#store.log() ? leadingSnippet(page, snippetChars) : bestSnippet(page, result, snippetChars),
+        snippet: this.#logIds.has(`${page.sourceId}:${page.path}`)
+          ? leadingSnippet(page, snippetChars)
+          : bestSnippet(page, result, snippetChars),
       });
     }
     return hits;

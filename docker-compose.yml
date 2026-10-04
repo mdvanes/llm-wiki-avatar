@@ -75,7 +75,7 @@ services:
       LIVEKIT_API_KEY: devkey
       LIVEKIT_API_SECRET: secret
       AGENT_NAME: ${AGENT_NAME:-llm-wiki-avatar}
-      WIKI_DIR: /wiki
+      WIKI_SOURCES: "${WIKI_SOURCES:-}"
       VOCAB_DIR: /app/vocab
       # Bind mounts from macOS/Windows do not deliver file events; poll instead.
       WIKI_WATCH_POLL: "true"
@@ -97,7 +97,8 @@ services:
       DEFAULT_VOICE: ${DEFAULT_VOICE:-female}
       DEFAULT_LANGUAGE: ${DEFAULT_LANGUAGE:-en}
     volumes:
-      - ${WIKI_PATH:-./sample-wiki}:/wiki:ro
+      - ./sample-wiki:/app/sample-wiki:ro
+      - ./wikis:/app/wikis:ro
       - ./vocab:/app/vocab:ro
     depends_on:
       livekit:
@@ -116,10 +117,11 @@ services:
       LIVEKIT_API_KEY: devkey
       LIVEKIT_API_SECRET: secret
       AGENT_NAME: ${AGENT_NAME:-llm-wiki-avatar}
-      WIKI_DIR: /wiki
+      WIKI_SOURCES: "${WIKI_SOURCES:-}"
       DEFAULT_VOICE: ${DEFAULT_VOICE:-female}
     volumes:
-      - ${WIKI_PATH:-./sample-wiki}:/wiki:ro
+      - ./sample-wiki:/app/sample-wiki:ro
+      - ./wikis:/app/wikis:ro
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     depends_on:
