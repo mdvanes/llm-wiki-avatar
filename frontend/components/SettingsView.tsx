@@ -25,6 +25,7 @@ import {
 } from '@/lib/stt/models';
 import { LanguageSelector } from './LanguageSelector';
 import { MicButton } from './MicButton';
+import { VoiceSettings } from './VoiceSettings';
 
 interface CacheState {
   bytes: number;
@@ -45,7 +46,7 @@ function capsText(caps: DeviceCaps, strings: (typeof STRINGS)['en']): string {
   return caps.f16 ? strings.webgpuYes : strings.webgpuNoF16;
 }
 
-/** Download, select and remove the speech-to-text models that run in this browser. */
+/** Download, select and remove the speech models (recognition and voices) that run in this browser. */
 export function SettingsView() {
   const [language, setLanguage] = useState<Language>('en');
   const strings = STRINGS[language];
@@ -96,6 +97,12 @@ export function SettingsView() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const refreshStorage = useCallback(() => {
+    void storageInfo()
+      .catch(() => undefined)
+      .then(setStorage);
+  }, []);
 
   const choose = (model: SttModel | undefined) => {
     setActive(model);
@@ -159,7 +166,7 @@ export function SettingsView() {
       </header>
 
       <div>
-        <h1 className="text-2xl font-semibold">{strings.settingsTitle}</h1>
+        <h1 className="text-2xl font-semibold">{strings.speechSettings}</h1>
         <p className="mt-2 text-muted">{strings.settingsIntro}</p>
       </div>
 
@@ -174,7 +181,7 @@ export function SettingsView() {
       </section>
 
       <section>
-        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">{strings.models}</h2>
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">{strings.settingsTitle}</h2>
         <ul className="flex flex-col gap-3">
           {STT_MODELS.map((model) => {
             const device = caps && deviceFor(model, caps);
@@ -308,6 +315,8 @@ export function SettingsView() {
           </p>
         )}
       </section>
+
+      <VoiceSettings language={language} strings={strings} caps={caps} onChange={refreshStorage} />
     </main>
   );
 }

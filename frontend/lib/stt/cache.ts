@@ -35,6 +35,55 @@ export async function removeCached(repo: string): Promise<void> {
   await Promise.all(requests.map((request) => cache.delete(request)));
 }
 
+/** Bytes of the given files in the browser cache, and whether all of them are there. */
+export async function cachedFiles(urls: readonly string[]): Promise<{ bytes: number; complete: boolean }> {
+  if (!available()) return { bytes: 0, complete: false };
+  const cache = await caches.open(MODEL_CACHE);
+  let bytes = 0;
+  let complete = true;
+  for (const url of urls) {
+    const response = await cache.match(url);
+    if (!response) {
+      complete = false;
+      continue;
+    }
+    bytes += Number(response.headers.get('content-length')) || 0;
+  }
+  return { bytes, complete };
+}
+
+export async function removeFiles(urls: readonly string[]): Promise<void> {
+  if (!available()) return;
+  const cache = await caches.open(MODEL_CACHE);
+  await Promise.all(urls.map((url) => cache.delete(url)));
+}
+
+/** Streams one file into the cache under the key transformers.js looks for; skips files already there. */
+export async function fetchToCache(cache: Cache, url: string, report: (loaded: number, total: number) => void) {
+  const cached = await cache.match(url);
+  if (cached) {
+    const size = Number(cached.headers.get('content-length')) || 0;
+    report(size, size);
+    return;
+  }
+  const response = await fetch(url);
+  if (!response.ok || !response.body) throw new Error(`HTTP ${response.status} for ${url}`);
+  const total = Number(response.headers.get('content-length')) || 0;
+  let loaded = 0;
+  const body = response.body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        loaded += chunk.byteLength;
+        report(loaded, total);
+        controller.enqueue(chunk);
+      },
+    }),
+  );
+  const headers = new Headers(response.headers);
+  if (total) headers.set('content-length', String(total));
+  await cache.put(url, new Response(body, { headers }));
+}
+
 export interface StorageInfo {
   usage: number;
   quota: number;

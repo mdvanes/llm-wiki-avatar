@@ -20,12 +20,14 @@
     "vitest": "^5.0.2"
   },
   "dependencies": {
+    "@diffusionstudio/piper-wasm": "1.0.0",
     "@huggingface/transformers": "^4.3.0",
     "@livekit/components-react": "^2.9.24",
     "@met4citizen/talkinghead": "^1.7.0",
     "livekit-client": "^2.22.3",
     "livekit-server-sdk": "^2.19.1",
     "next": "^16.3.6",
+    "onnxruntime-web": "1.31.0-dev.20260914-8d85527a0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-markdown": "^10.1.0",

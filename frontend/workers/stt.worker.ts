@@ -1,6 +1,6 @@
 import { type AutomaticSpeechRecognitionPipeline, ModelRegistry, env, pipeline } from '@huggingface/transformers';
 import { cleanTranscript } from '@/lib/stt/audio';
-import { MODEL_CACHE } from '@/lib/stt/cache';
+import { MODEL_CACHE, fetchToCache } from '@/lib/stt/cache';
 import type { SttRequest, SttResponse } from '@/lib/stt/client';
 import type { LoadSpec } from '@/lib/stt/models';
 import { FileProgress } from '@/lib/stt/progress';
@@ -39,32 +39,6 @@ function open(spec: LoadSpec, id: number): Promise<AutomaticSpeechRecognitionPip
       if (info.status === 'progress') report(info.file, info.loaded, info.total);
     },
   });
-}
-
-/** Streams one file into the cache under the key transformers.js looks for; skips files already there. */
-async function fetchToCache(cache: Cache, url: string, report: (loaded: number, total: number) => void) {
-  const cached = await cache.match(url);
-  if (cached) {
-    const size = Number(cached.headers.get('content-length')) || 0;
-    report(size, size);
-    return;
-  }
-  const response = await fetch(url);
-  if (!response.ok || !response.body) throw new Error(`HTTP ${response.status} for ${url}`);
-  const total = Number(response.headers.get('content-length')) || 0;
-  let loaded = 0;
-  const body = response.body.pipeThrough(
-    new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        loaded += chunk.byteLength;
-        report(loaded, total);
-        controller.enqueue(chunk);
-      },
-    }),
-  );
-  const headers = new Headers(response.headers);
-  if (total) headers.set('content-length', String(total));
-  await cache.put(url, new Response(body, { headers }));
 }
 
 /** Fills the cache without building the model, which for the large model takes long and a lot of memory. */
