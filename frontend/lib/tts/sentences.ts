@@ -3,10 +3,13 @@ export const MAX_SENTENCE = 250;
 
 const BOUNDARY = /([.!?…]+)(["'”’)\]]*)\s+|\n\s*/g;
 const ABBREVIATION = /(?:^|[\s(])(?:e\.g|i\.e|etc|vs|mr|mrs|ms|dr|prof|bijv|d\.w\.z|o\.a|ca|nr)\.$/i;
+const LIST_NUMBER = /(?:^|\n)\s*\d+\.$/;
 
-function sentenceEnd(text: string): number {
+/** Where the first complete sentence of `text` ends (after its trailing space), or -1. */
+export function sentenceEnd(text: string): number {
   for (const m of text.matchAll(BOUNDARY)) {
-    if (m[1] === '.' && ABBREVIATION.test(text.slice(0, m.index + 1))) continue;
+    const before = text.slice(0, m.index + 1);
+    if (m[1] === '.' && (ABBREVIATION.test(before) || LIST_NUMBER.test(before))) continue;
     return m.index + m[0].length;
   }
   return -1;

@@ -1,9 +1,9 @@
 /**
- * Word-timed lip-sync for the premium avatar. The agent sends the word timings of each TTS segment (usually a
- * sentence) over a text stream, ahead of the audio that arrives over WebRTC. There is no shared clock, so each segment
- * is anchored to the moment its audio is heard: the rise in loudness where the first word starts, or, when the audio
- * runs on without a pause, the end of the previous segment. Words become Oculus visemes (via TalkingHead's lip-sync
- * module) with overlapping attack/release envelopes, so the mouth moves through the sounds instead of flapping.
+ * Word-timed lip-sync for the premium avatar. Each TTS segment (usually a sentence) comes with word timings. When the
+ * start of its audio is known (speech played in this browser) the segment is anchored there; otherwise it is anchored
+ * to the moment its audio is heard: the rise in loudness where the first word starts, or, when the audio runs on
+ * without a pause, the end of the previous segment. Words become Oculus visemes with overlapping attack/release
+ * envelopes, so the mouth moves through the sounds instead of flapping.
  */
 import type { WordSegment, WordTiming } from './protocol';
 
@@ -17,13 +17,20 @@ export const REST: VisemeShape = Object.fromEntries(
   [...VISEME_KEYS, 'jawOpen'].map((k) => [k, 0]),
 ) as VisemeShape;
 
-/** Output of TalkingHead's `LipsyncEn.wordsToVisemes`: visemes with times and durations in relative units. */
+/** Output of a word-to-viseme converter: visemes with times and durations in relative units. */
 export interface WordVisemes {
   visemes: string[];
   times: number[];
   durations: number[];
 }
 export type WordsToVisemes = (word: string) => WordVisemes | undefined;
+
+/** Word timings of speech played in this browser; `null` when the speech stopped. */
+export type WordListener = (event: { segment: WordSegment; startsAt: number } | null) => void;
+
+export interface WordSource {
+  subscribe(listener: WordListener): () => void;
+}
 
 interface VisemeEvent {
   key: VisemeKey;
@@ -152,12 +159,12 @@ export class WordLipSync {
     return this.#queue.length;
   }
 
-  /** Adds (a piece of) a segment's word timings. */
-  add(update: WordSegment, now: number): void {
+  /** Adds (a piece of) a segment's word timings; `anchor` is when its audio starts, if known. */
+  add(update: WordSegment, now: number, anchor?: number): void {
     let seg = this.#queue.find((s) => s.id === update.id);
     if (!seg) {
       if (update.final && update.words.length === 0 && !update.durationMs) return;
-      seg = { id: update.id, words: [], events: [], final: false, receivedAt: now };
+      seg = { id: update.id, words: [], events: [], final: false, receivedAt: now, anchor };
       this.#queue.push(seg);
     }
     for (const word of update.words) {

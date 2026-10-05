@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { kokoroPhonemes, kokoroWordTimings, normalizeEnglish } from '@/lib/tts/kokoro';
 import { MAX_SENTENCE, SentenceSplitter, limitLength, splitSentences } from '@/lib/tts/sentences';
+import { speakable, speechSegments } from '@/lib/tts/speechText';
+import { ipaToVisemes } from '@/lib/tts/visemes';
 import { KOKORO_REPO, TTS_VOICES, filesToRemove, findVoice, voiceFiles, voiceFor, voiceSpec } from '@/lib/tts/voices';
 
 const gpu = { webgpu: true, f16: true };
@@ -61,12 +63,56 @@ describe('sentences', () => {
     expect(splitSentences('First item\nSecond item')).toEqual(['First item', 'Second item']);
   });
 
+  it('does not take numbered list items for sentences', () => {
+    expect(splitSentences('1. Open the page. Then click.')).toEqual(['1. Open the page.', 'Then click.']);
+  });
+
   it('cuts overly long sentences at a comma or space', () => {
     const long = `${'word '.repeat(40).trim()}, ${'more '.repeat(40).trim()}`;
     const parts = limitLength(long);
     expect(parts.length).toBeGreaterThan(1);
     for (const part of parts) expect(part.length).toBeLessThanOrEqual(MAX_SENTENCE);
     expect(parts.join(' ')).toBe(long);
+  });
+});
+
+describe('speech text', () => {
+  it('makes markdown speakable', () => {
+    expect(speakable('**Note:** see [[Billing Service|billing]] and `getUserByID`! 🎉')).toBe(
+      'Note: see billing and get User By ID!',
+    );
+    expect(speakable('## Retry policy')).toBe('Retry policy');
+    expect(speakable('- Read [the docs](https://example.com/docs).')).toBe('Read the docs.');
+    expect(speakable('Docs: https://www.example.com/a/b.')).toBe('Docs: example.com.');
+    expect(speakable('`a = b()`')).toBe('');
+  });
+
+  it('leaves code blocks out but keeps their place in the reply', () => {
+    const reply = 'Here is how.\n```ts\nconst a = 1.5;\n```\nThat is all.';
+    const segments = speechSegments(reply, true);
+    expect(segments.map((s) => s.text)).toEqual(['Here is how.', 'That is all.']);
+    expect(segments[1]!.end).toBe(reply.length);
+    expect(reply.slice(0, segments[0]!.end)).toBe('Here is how.\n');
+  });
+
+  it('holds back unfinished sentences and code blocks until the reply is final', () => {
+    expect(speechSegments('One. Two', false).map((s) => s.text)).toEqual(['One.']);
+    expect(speechSegments('One. Two', true).map((s) => s.text)).toEqual(['One.', 'Two']);
+    expect(speechSegments('Look:\n```\ncode. more', false).map((s) => s.text)).toEqual(['Look:']);
+  });
+
+  it('keeps the sentences it already gave as the reply grows', () => {
+    const before = speechSegments('First one. Second', false);
+    const after = speechSegments('First one. Second one. Third', false);
+    expect(after.slice(0, before.length)).toEqual(before);
+  });
+});
+
+describe('visemes from phonemes', () => {
+  it('maps IPA to mouth shapes and merges repeats', () => {
+    expect(ipaToVisemes('həlˈoʊ')?.visemes).toEqual(['kk', 'E', 'nn', 'O', 'U']);
+    expect(ipaToVisemes('mˈæp')?.visemes).toEqual(['PP', 'aa', 'PP']);
+    expect(ipaToVisemes('ˈː')).toBeUndefined();
   });
 });
 

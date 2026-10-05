@@ -6,25 +6,32 @@ import {
   useSessionContext,
   useSessionMessages,
 } from '@livekit/components-react';
-import { RemoteAudioTrack } from 'livekit-client';
+import type { AgentState } from '@livekit/components-react';
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useConversationRecorder } from '@/hooks/useConversationRecorder';
 import { usePushToTalk } from '@/hooks/usePushToTalk';
+import { useReplySpeech, useVoice } from '@/hooks/useReplySpeech';
 import { useActiveSttModel } from '@/hooks/useSpeechRecognizer';
 import { useWikiStreams } from '@/hooks/useWikiStreams';
 import { type Conversation, mergeEntries, restorePayload } from '@/lib/history';
 import type { Language, Strings } from '@/lib/language';
-import { type Presentation, avatarOf, lipsyncOf, voiceOf } from '@/lib/presentation';
-import { stopTarget, withFullReplies } from '@/lib/reply';
 import {
-  RPC_INTERRUPT,
-  RPC_RESTORE_HISTORY,
-  RPC_SET_LANGUAGE,
-  RPC_SET_LIPSYNC,
-  RPC_SET_VOICE,
-  RPC_STOP_SPEAKING,
-} from '@/lib/protocol';
-import { type Phase, TRANSCRIPT_GRACE_MS, conversationPhase, holdsPrevious } from '@/lib/status';
+  INSTANT_TRANSCRIPT_KEY,
+  type Presentation,
+  avatarOf,
+  lipsyncOf,
+  loadInstantTranscript,
+  voiceOf,
+} from '@/lib/presentation';
+import { withFullReplies } from '@/lib/reply';
+import { RPC_INTERRUPT, RPC_RESTORE_HISTORY, RPC_SET_LANGUAGE } from '@/lib/protocol';
+import {
+  type Phase,
+  TRANSCRIPT_GRACE_MS,
+  conversationPhase,
+  holdsPrevious,
+  voicedAgentState,
+} from '@/lib/status';
 import { AnswerCard } from './AnswerCard';
 import { CartoonAvatar } from './CartoonAvatar';
 import { ConversationStatus, phaseLabel } from './ConversationStatus';
@@ -34,7 +41,6 @@ import { MicButton } from './MicButton';
 import { PageViewer, type PageRef } from './PageViewer';
 import { PresentationSelector } from './PresentationSelector';
 import { SettingsLink } from './SettingsLink';
-import { SpinnerOverlay } from './Spinner';
 import { SourceChips } from './SourceChips';
 import { Transcript, toTranscriptEntry } from './Transcript';
 
@@ -83,12 +89,6 @@ function useRestoreHistory(previous: Conversation | undefined, agentIdentity: st
   }, [previous, agentIdentity, localParticipant]);
 }
 
-/** Shortest time the "switching voice" spinner is shown. */
-const MIN_SWITCH_MS = 700;
-
-/** Audio still buffered in the browser after the agent stops; kept silent until it has drained. */
-const SILENCE_TAIL_MS = 500;
-
 /** Smooths over the brief "listening" gap between the transcript and the agent starting to think. */
 function useSettledPhase(phase: Phase): Phase {
   const [shown, setShown] = useState(phase);
@@ -101,6 +101,20 @@ function useSettledPhase(phase: Phase): Phase {
     return () => clearTimeout(timer);
   }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
   return shown;
+}
+
+/** The "show dialog without delay" setting; follows changes made on the settings page. */
+function useInstantTranscript(): boolean {
+  const [instant, setInstant] = useState(false);
+  useEffect(() => {
+    setInstant(loadInstantTranscript());
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === INSTANT_TRANSCRIPT_KEY || e.key === null) setInstant(loadInstantTranscript());
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+  return instant;
 }
 
 export function SessionView({
@@ -122,10 +136,6 @@ export function SessionView({
   const [page, setPage] = useState<PageRef | null>(null);
   const [draft, setDraft] = useState('');
   const [switching, setSwitching] = useState(false);
-  /** The voice is being switched on the agent. */
-  const [switchingVoice, setSwitchingVoice] = useState(false);
-  /** Set when the user stopped the voice, until the agent has stopped speaking. */
-  const [silenced, setSilenced] = useState(false);
 
   const current = useMemo(() => messages.map(toTranscriptEntry), [messages]);
   const entries = useMemo(
@@ -164,12 +174,25 @@ export function SessionView({
     [agent.identity, language, localParticipant, onLanguageChange],
   );
 
+  const voice = voiceOf(presentation);
+  const gender = avatarOf(presentation);
+  const { spec, missing: voiceMissing } = useVoice(language, voice === 'off' ? null : voice);
+  const instant = useInstantTranscript();
+  const speech = useReplySpeech({
+    messages: current,
+    final: agent.state !== 'thinking' && agent.state !== 'speaking',
+    spec,
+    instant,
+  });
+  const stopSpeech = speech.stop;
+
   const interrupt = useCallback(() => {
+    stopSpeech();
     if (!agent.identity) return;
     localParticipant
       .performRpc({ destinationIdentity: agent.identity, method: RPC_INTERRUPT, payload: '' })
       .catch((err) => console.error('interrupt failed', err));
-  }, [agent.identity, localParticipant]);
+  }, [agent.identity, localParticipant, stopSpeech]);
 
   const sttModel = useActiveSttModel();
   const ptt = usePushToTalk({
@@ -186,96 +209,30 @@ export function SessionView({
     const text = draft.trim();
     if (!text) return;
     setDraft('');
+    stopSpeech();
     await send(text);
   };
 
-  const agentAudioTrack = agent.microphoneTrack?.publication.track;
-  const speaking = agent.state === 'speaking';
-
-  const stopSpeaking = async () => {
-    if (!agent.identity) return;
-    setSilenced(true);
-    try {
-      await localParticipant.performRpc({
-        destinationIdentity: agent.identity,
-        method: RPC_STOP_SPEAKING,
-        payload: stopTarget(current),
-      });
-    } catch (err) {
-      console.error('stop_speaking failed', err);
-      setSilenced(false);
-    }
-  };
-
-  const voice = voiceOf(presentation);
-  const gender = avatarOf(presentation);
-
-  const changePresentation = async (next: Presentation) => {
-    if (next === presentation) return;
-    const previous = presentation;
+  const changePresentation = (next: Presentation) => {
+    // Rather than switching voices halfway, stop the reply; its text is shown in full.
+    if (voiceOf(next) !== voiceOf(presentation)) stopSpeech();
     onPresentationChange(next);
-    if (!agent.identity) return;
-    const lipsyncChanged = lipsyncOf(next) !== lipsyncOf(previous);
-    const setLipsync = () =>
-      localParticipant.performRpc({
-        destinationIdentity: agent.identity,
-        method: RPC_SET_LIPSYNC,
-        payload: lipsyncOf(next),
-      });
-    if (voiceOf(next) === voiceOf(previous)) {
-      if (!lipsyncChanged) return;
-      // Same voice: the lip-sync takes over from the next sentence, no need to stop.
-      try {
-        await setLipsync();
-      } catch (err) {
-        console.error('set_lipsync failed', err);
-        onPresentationChange(previous);
-      }
-      return;
-    }
-    setSwitchingVoice(true);
-    const started = Date.now();
-    try {
-      // Stop the current reply rather than switching voices halfway; its text still arrives in full.
-      if (speaking && !silenced) await stopSpeaking();
-      if (lipsyncChanged) await setLipsync();
-      await localParticipant.performRpc({
-        destinationIdentity: agent.identity,
-        method: RPC_SET_VOICE,
-        payload: voiceOf(next),
-      });
-    } catch (err) {
-      console.error('set_voice failed', err);
-      onPresentationChange(previous);
-    } finally {
-      // Keep the spinner up long enough to be seen rather than flash.
-      await new Promise((r) => setTimeout(r, Math.max(0, MIN_SWITCH_MS - (Date.now() - started))));
-      setSwitchingVoice(false);
-    }
   };
-
-  // Mute what the browser still has buffered, and unmute once the agent is done.
-  useEffect(() => {
-    if (!(agentAudioTrack instanceof RemoteAudioTrack)) return;
-    if (silenced) {
-      agentAudioTrack.setVolume(0);
-      if (speaking) return;
-      const timer = setTimeout(() => setSilenced(false), SILENCE_TAIL_MS);
-      return () => clearTimeout(timer);
-    }
-    agentAudioTrack.setVolume(1);
-  }, [silenced, speaking, agentAudioTrack]);
 
   // Without a voice the agent "speaks" by writing its reply.
   const shownStrings = useMemo(
-    () => (voice === 'off' ? { ...strings, speaking: strings.answering } : strings),
-    [voice, strings],
+    () => (spec ? strings : { ...strings, speaking: strings.answering }),
+    [spec, strings],
   );
-  const phase = useSettledPhase(conversationPhase(agent.state, ptt.state));
+  const agentState = (spec ? voicedAgentState(agent.state, speech.state) : agent.state) as AgentState;
+  const phase = useSettledPhase(conversationPhase(agentState, ptt.state));
   const busy = phase === 'hearing' || phase === 'transcribing' || phase === 'thinking';
-  const agentAudio = agentAudioTrack?.mediaStreamTrack;
-  const showStop = speaking && !silenced && voice !== 'off';
+  const showStop = speech.state !== 'idle';
+  const display = speech.display;
+  const shownEntries = useMemo(() => display(entries), [display, entries]);
   const newestFirst = [...allAnswers].reverse();
+  const voiceNotice =
+    voice === 'off' ? undefined : speech.failed ? strings.voiceFailedShort : voiceMissing ? strings.voiceMissing : undefined;
 
   return (
     <div className="flex h-full flex-col">
@@ -293,8 +250,8 @@ export function SessionView({
         <div className="flex items-center gap-3">
           <PresentationSelector
             value={presentation}
-            onChange={(next) => void changePresentation(next)}
-            disabled={switchingVoice || !agent.isConnected}
+            onChange={changePresentation}
+            disabled={!agent.isConnected}
             strings={strings}
           />
           <LanguageSelector
@@ -330,29 +287,34 @@ export function SessionView({
                   gender={gender}
                   label={gender === 'female' ? strings.avatarFemale : strings.avatarMale}
                   aiLabel={strings.aiAvatar}
-                  busy={switchingVoice}
-                  busyLabel={strings.switchingVoice}
                   className="h-[50vh] min-h-[240px]"
-                  audioTrack={agentAudio}
-                  agentState={agent.state}
+                  audioTrack={speech.player?.track}
+                  agentState={agentState}
                   mood={mood}
-                  silenced={silenced}
                   lipsync={lipsyncOf(presentation)}
+                  words={speech.player}
                 />
               ) : (
                 <VoicePanel
                   label={voice === 'off' ? strings.textOnly : strings.voiceOnly}
                   icon={voice === 'off' ? '💬' : '🔊'}
-                  active={speaking && !silenced}
-                  switchingLabel={switchingVoice ? strings.switchingVoice : undefined}
+                  active={speech.state === 'playing'}
                 />
               )}
-              {busy && !switchingVoice && (
+              {busy && (
                 <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
                   <ConversationStatus phase={phase} strings={shownStrings} variant="banner" />
                 </div>
               )}
             </div>
+            {voiceNotice && (
+              <p className="border-t border-border px-3 py-2 text-xs text-muted">
+                {voiceNotice}{' '}
+                <a href="/settings" target="_blank" rel="noopener" className="text-accent underline">
+                  {strings.speechSettings}
+                </a>
+              </p>
+            )}
             <form onSubmit={submit} className="flex items-center gap-2 border-t border-border p-3">
               <MicButton ptt={ptt} strings={strings} />
               <input
@@ -364,7 +326,7 @@ export function SessionView({
               {showStop ? (
                 <button
                   type="button"
-                  onClick={() => void stopSpeaking()}
+                  onClick={stopSpeech}
                   title={strings.stopSpeaking}
                   aria-label={strings.stopSpeaking}
                   className="flex items-center gap-1.5 rounded-full bg-danger px-4 py-2 text-sm font-semibold text-bg"
@@ -409,7 +371,7 @@ export function SessionView({
           </h2>
           <div className="min-h-0 flex-1 overflow-y-auto">
             <Transcript
-              messages={entries}
+              messages={shownEntries}
               emptyText={strings.empty}
               thinking={phase === 'thinking'}
               pendingSpeech={phase === 'hearing' || phase === 'transcribing' ? phaseLabel(phase, strings) : undefined}
@@ -427,17 +389,7 @@ export function SessionView({
 }
 
 /** Takes the avatar's place when there is no avatar: a compact panel that shows the mode and what the agent does. */
-function VoicePanel({
-  label,
-  icon,
-  active,
-  switchingLabel,
-}: {
-  label: string;
-  icon: string;
-  active: boolean;
-  switchingLabel?: string;
-}) {
+function VoicePanel({ label, icon, active }: { label: string; icon: string; active: boolean }) {
   return (
     <div className="relative flex h-48 flex-col items-center justify-center gap-3 pb-10">
       <span
@@ -449,7 +401,6 @@ function VoicePanel({
         {icon}
       </span>
       <span className="text-xs text-muted">{label}</span>
-      {switchingLabel && <SpinnerOverlay label={switchingLabel} dim />}
     </div>
   );
 }

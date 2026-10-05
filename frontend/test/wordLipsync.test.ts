@@ -141,6 +141,12 @@ describe('WordLipSync', () => {
     expect(w.pending).toBe(0);
   });
 
+  it('follows a segment from a known start without waiting for loudness', () => {
+    const w = sync();
+    w.add(hello, 0, 1000);
+    expect(strongest(w.update(1000 + 360, 0, 16))).toBe(strongest(shapeAt(helloEvents, 361)));
+  });
+
   it('merges pieces of the same segment', () => {
     const w = sync();
     w.add({ id: 'a', words: [{ w: 'Hello', s: 50, e: 400 }], final: false }, 0);

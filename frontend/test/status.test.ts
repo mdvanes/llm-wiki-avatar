@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { conversationPhase, holdsPrevious, isProcessing } from '@/lib/status';
+import { conversationPhase, holdsPrevious, isProcessing, voicedAgentState } from '@/lib/status';
 
 describe('conversationPhase', () => {
   it('waits until the agent is connected', () => {
@@ -20,6 +20,21 @@ describe('conversationPhase', () => {
     expect(isProcessing('transcribing')).toBe(true);
     expect(isProcessing('thinking')).toBe(true);
     expect(isProcessing('hearing')).toBe(false);
+  });
+});
+
+describe('voicedAgentState', () => {
+  it('speaks while the voice plays, even after the agent finished writing', () => {
+    expect(voicedAgentState('listening', 'playing')).toBe('speaking');
+    expect(voicedAgentState('speaking', 'playing')).toBe('speaking');
+  });
+  it('thinks while the reply waits for the voice', () => {
+    expect(voicedAgentState('speaking', 'idle')).toBe('thinking');
+    expect(voicedAgentState('listening', 'preparing')).toBe('thinking');
+  });
+  it('leaves other states alone', () => {
+    expect(voicedAgentState('listening', 'idle')).toBe('listening');
+    expect(voicedAgentState('connecting', 'playing')).toBe('connecting');
   });
 });
 

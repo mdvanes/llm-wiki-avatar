@@ -47,3 +47,15 @@ export function loadPresentation(fallback: Presentation = DEFAULT_PRESENTATION):
 export function savePresentation(presentation: Presentation): void {
   window.localStorage.setItem(STORAGE_KEY, presentation);
 }
+
+/** Show replies as they arrive instead of along with the voice. */
+export const INSTANT_TRANSCRIPT_KEY = 'llm-wiki-avatar.instantTranscript';
+
+export function loadInstantTranscript(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.localStorage.getItem(INSTANT_TRANSCRIPT_KEY) === 'true';
+}
+
+export function saveInstantTranscript(instant: boolean): void {
+  window.localStorage.setItem(INSTANT_TRANSCRIPT_KEY, String(instant));
+}

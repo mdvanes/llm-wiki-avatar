@@ -2,7 +2,6 @@
 
 import type { AgentState } from '@livekit/components-react';
 import { useEffect, useId, useRef, useState } from 'react';
-import { useWordSegments } from '@/hooks/useWordSegments';
 import { LOOKS } from '@/lib/cartoon/character';
 import { FaceAnimator } from '@/lib/cartoon/face';
 import { mouthPose } from '@/lib/cartoon/mouth';
@@ -12,7 +11,8 @@ import { MALE_PHOTO } from '@/lib/photo/male';
 import { LipSync, brightness, rms } from '@/lib/lipsync';
 import type { AvatarGender } from '@/lib/presentation';
 import type { Lipsync, Mood } from '@/lib/protocol';
-import { REST, WordLipSync } from '@/lib/wordLipsync';
+import { ipaToVisemes } from '@/lib/tts/visemes';
+import { REST, WordLipSync, type WordSource } from '@/lib/wordLipsync';
 import { CartoonCharacter } from './cartoon/CartoonCharacter';
 import { Parts, drawFrame } from './cartoon/draw';
 import { PhotoRenderer } from './photo/PhotoRenderer';
@@ -36,10 +36,10 @@ interface Props {
   audioTrack?: MediaStreamTrack;
   agentState: AgentState;
   mood?: MoodEvent;
-  /** The user stopped the voice: close the mouth, even while audio is still draining. */
-  silenced?: boolean;
-  /** `words`: follow the word timings the agent sends, falling back to loudness where there are none. */
+  /** `words`: follow the word timings of the speech, falling back to loudness where there are none. */
   lipsync?: Lipsync;
+  /** Word timings of the speech, for the `words` lip-sync. */
+  words?: WordSource;
   className?: string;
 }
 
@@ -49,14 +49,7 @@ const PHOTOS: Partial<Record<AvatarGender, { mesh: PhotoMesh; image: string; bac
   female: { mesh: FEMALE_PHOTO, image: '/avatars/female.webp', background: '/avatars/female-bg.webp' },
 };
 
-/** Word lip-sync with TalkingHead's English text-to-viseme rules; the module is loaded on first use. */
-async function createWordLipSync(): Promise<WordLipSync> {
-  const { LipsyncEn } = await import('@met4citizen/talkinghead/modules/lipsync-en.mjs');
-  const rules = new LipsyncEn();
-  return new WordLipSync((word) => rules.wordsToVisemes(rules.preProcessText(word)));
-}
-
-/** Audio analysis chain for the agent's voice; not connected to the speakers (RoomAudioRenderer plays it). */
+/** Audio analysis chain for the voice; not connected to the speakers (the speech player plays it). */
 class VoiceAnalyser {
   readonly ctx = new AudioContext();
   readonly #analyser: AnalyserNode;
@@ -97,8 +90,8 @@ export function CartoonAvatar({
   audioTrack,
   agentState,
   mood,
-  silenced = false,
   lipsync = 'audio',
+  words: wordSource,
   className,
 }: Props) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
@@ -111,8 +104,8 @@ export function CartoonAvatar({
   const loudness = useRef(new LipSync());
   const words = useRef<WordLipSync | null>(null);
   const face = useRef<FaceAnimator | null>(null);
-  const live = useRef({ agentState, silenced, lipsync });
-  live.current = { agentState, silenced, lipsync };
+  const live = useRef({ agentState, lipsync });
+  live.current = { agentState, lipsync };
 
   // The animation loop.
   useEffect(() => {
@@ -140,12 +133,12 @@ export function CartoonAvatar({
       frame = requestAnimationFrame(tick);
       const dt = Math.min(100, now - last);
       last = now;
-      const { agentState: state, silenced: quiet, lipsync: mode } = live.current;
+      const { agentState: state, lipsync: mode } = live.current;
 
       let shape = REST;
       let level = 0;
       const analyser = analyserRef.current;
-      if (analyser && !quiet) {
+      if (analyser) {
         const sample = analyser.sample();
         // Keep the loudness lip-sync running, so it can take over smoothly where there are no word timings.
         const byLoudness = loudness.current.update(sample.level, sample.tone, dt);
@@ -189,32 +182,16 @@ export function CartoonAvatar({
       words.current?.clear();
       return;
     }
-    if (words.current) return;
-    let cancelled = false;
-    createWordLipSync()
-      .then((w) => {
-        if (!cancelled) words.current = w;
-      })
-      .catch((err: unknown) => console.warn('word lip-sync unavailable', err));
-    return () => {
-      cancelled = true;
-    };
+    words.current ??= new WordLipSync(ipaToVisemes);
   }, [lipsync]);
-  useWordSegments((segment) => {
-    if (live.current.lipsync === 'words') words.current?.add(segment, performance.now());
-  });
-  // Segments left over from speech that ended or was interrupted must not play with the next reply.
-  const previousState = useRef(agentState);
-  useEffect(() => {
-    if (previousState.current === 'speaking' && agentState !== 'speaking') words.current?.clear();
-    previousState.current = agentState;
-  }, [agentState]);
-
-  useEffect(() => {
-    if (!silenced) return;
-    loudness.current.reset();
-    words.current?.clear();
-  }, [silenced]);
+  useEffect(
+    () =>
+      wordSource?.subscribe((event) => {
+        if (!event) words.current?.clear();
+        else if (live.current.lipsync === 'words') words.current?.add(event.segment, performance.now(), event.startsAt);
+      }),
+    [wordSource],
+  );
 
   return (
     <div

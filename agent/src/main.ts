@@ -15,7 +15,6 @@ import {
   RPC_STOP_SPEAKING,
   RoomPublisher,
 } from './publisher.ts';
-import { SpeachesTTS } from './speachesTts.ts';
 import { SpeechFilter } from './speechFilter.ts';
 import { filterTextStream } from './textStream.ts';
 import { WikiAgent } from './wikiAgent.ts';
@@ -64,29 +63,18 @@ export default defineAgent({
     ctx.addShutdownCallback(() => wiki.close());
     logger.info({ sources: wiki.store.sources, pages: wiki.store.size }, 'wiki loaded');
 
-    const initial = profiles[cfg.DEFAULT_LANGUAGE];
     const publisher = new RoomPublisher(ctx.room, (err) => logger.warn({ err }, 'failed to publish to room'));
-    // WikiAgent switches to the configured voice.
-    const tts = new SpeachesTTS({
-      ...initial.voices.female,
-      apiKey: cfg.SPEACHES_API_KEY,
-      speed: cfg.TTS_SPEED,
-      onWords: (segment) => publisher.words(segment),
-    });
 
-    // The browser transcribes push-to-talk itself and sends the text as a chat message.
+    // The browser transcribes push-to-talk itself and sends the text as a chat message; it also speaks the replies.
     const session = new voice.AgentSession({
       vad: null,
       llm: createLLM(cfg),
-      tts,
       turnHandling: {
         turnDetection: 'manual',
         preemptiveGeneration: { enabled: false },
       },
-      ttsTextTransforms: ttsTextTransforms(),
       connOptions: {
         llmConnOptions: { timeoutMs: cfg.LLM_TIMEOUT_S * 1000 },
-        ttsConnOptions: { timeoutMs: cfg.SPEECH_TIMEOUT_S * 1000 },
       },
     });
 
@@ -96,13 +84,16 @@ export default defineAgent({
       publisher,
       profiles,
       language: cfg.DEFAULT_LANGUAGE,
-      tts,
       voice: cfg.DEFAULT_VOICE,
-      audioOutput: session.output,
     });
     wiki.watch();
 
-    await session.start({ agent, room: ctx.room, inputOptions: { audioEnabled: false } });
+    await session.start({
+      agent,
+      room: ctx.room,
+      inputOptions: { audioEnabled: false },
+      outputOptions: { audioEnabled: false },
+    });
     await ctx.connect();
 
     ctx.room.localParticipant?.registerRpcMethod(RPC_SET_LANGUAGE, async ({ payload, callerIdentity }) => {

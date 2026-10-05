@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Language, Strings } from '@/lib/language';
 import type { WordTiming } from '@/lib/protocol';
+import { loadInstantTranscript, saveInstantTranscript } from '@/lib/presentation';
 import { cachedFiles, formatBytes, persistStorage, removeFiles } from '@/lib/stt/cache';
 import type { DeviceCaps } from '@/lib/stt/models';
 import { TtsClient } from '@/lib/tts/client';
@@ -59,6 +60,7 @@ export function VoiceSettings({
   const [text, setText] = useState(SAMPLE_TEXT[language]);
   const [run, setRun] = useState<Run>();
   const [clock, setClock] = useState(0);
+  const [instant, setInstant] = useState(false);
   const client = useRef<TtsClient | undefined>(undefined);
   const player = useRef<SpeechPlayer | undefined>(undefined);
 
@@ -77,7 +79,9 @@ export function VoiceSettings({
             sentence,
           },
         ),
-      onIdle: () => setRun((r) => r && { ...r, done: true, sentence: undefined }),
+      onState: (state) => {
+        if (state === 'idle') setRun((r) => r && { ...r, done: true, sentence: undefined });
+      },
       onError: (err) => setRun((r) => r && { ...r, done: true, error: errorMessage(err) }),
     });
     return created;
@@ -85,6 +89,7 @@ export function VoiceSettings({
 
   useEffect(() => {
     startClient();
+    setInstant(loadInstantTranscript());
     return () => {
       player.current?.close();
       client.current?.terminate();
@@ -186,6 +191,21 @@ export function VoiceSettings({
       <section>
         <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">{strings.voices}</h2>
         <p className="mb-3 text-sm text-muted">{strings.voicesIntro}</p>
+        <label className="mb-3 flex items-start gap-2 rounded-xl border border-border bg-panel p-4 text-sm">
+          <input
+            type="checkbox"
+            checked={instant}
+            onChange={(e) => {
+              setInstant(e.target.checked);
+              saveInstantTranscript(e.target.checked);
+            }}
+            className="mt-0.5 accent-accent"
+          />
+          <span>
+            <span className="font-semibold">{strings.instantTranscript}</span>
+            <span className="block text-xs text-muted">{strings.instantTranscriptNote}</span>
+          </span>
+        </label>
         <ul className="flex flex-col gap-3">
           {TTS_VOICES.map((voice) => {
             const state = cache?.[voice.id];

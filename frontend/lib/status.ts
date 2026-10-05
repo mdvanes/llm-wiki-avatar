@@ -4,6 +4,17 @@ export type SpeechState = 'idle' | 'hearing' | 'transcribing';
 /** What the conversation is doing, as shown to the user. */
 export type Phase = 'waiting' | 'listening' | 'hearing' | 'transcribing' | 'thinking' | 'speaking';
 
+/**
+ * The agent's state as the user experiences it when the browser speaks the replies: the agent only writes, so it is
+ * "speaking" while the voice plays, and still "thinking" while text waits for the voice.
+ */
+export function voicedAgentState(agentState: string, player: 'idle' | 'preparing' | 'playing'): string {
+  if (agentState !== 'listening' && agentState !== 'thinking' && agentState !== 'speaking') return agentState;
+  if (player === 'playing') return 'speaking';
+  if (player === 'preparing' || agentState === 'speaking') return 'thinking';
+  return agentState;
+}
+
 /** The user's speech takes precedence, so they can see it was picked up even while the agent is still talking. */
 export function conversationPhase(agentState: string, speech: SpeechState): Phase {
   const connected = agentState === 'listening' || agentState === 'thinking' || agentState === 'speaking';
