@@ -1,11 +1,14 @@
-import { initializeLogger, type llm, voice } from '@livekit/agents';
+import { APIConnectionError, APIStatusError, initializeLogger, llm, voice } from '@livekit/agents';
+import { createServer } from 'node:http';
 import { resolve } from 'node:path';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { probeLLM } from './helpers.ts';
 import { REPO_ROOT, loadConfig } from '../src/config.ts';
 import { LANGUAGE_PROFILES } from '../src/language.ts';
+import { createLLM } from '../src/main.ts';
 import { buildInstructions, buildWikiContext, wikiOverview } from '../src/prompts.ts';
 import { RecordingPublisher, TOPICS } from '../src/publisher.ts';
-import { SourceTracker, listRecentChanges, readPage, searchWiki, showOnScreen, truncate } from '../src/tools.ts';
+import { SourceTracker, createWikiTools, listRecentChanges, readPage, searchWiki, showOnScreen, truncate } from '../src/tools.ts';
 import { WikiAgent, containsCode } from '../src/wikiAgent.ts';
 import { Wiki } from '../src/wiki/wiki.ts';
 
@@ -24,10 +27,93 @@ function deps() {
 }
 
 describe('config', () => {
+  const api = {
+    LLM_PROVIDER: 'openai-compatible',
+    LLM_BASE_URL: 'https://api.example.com/v1',
+    LLM_MODEL: 'tool-capable-model',
+    LLM_API_KEY: 'test-key',
+  };
+
+  it('accepts explicit API configuration and legacy custom endpoints', () => {
+    expect(loadConfig(api)).toMatchObject(api);
+    expect(loadConfig({ ...api, LLM_PROVIDER: '' })).toMatchObject({
+      LLM_BASE_URL: api.LLM_BASE_URL,
+      LLM_MODEL: api.LLM_MODEL,
+      LLM_API_KEY: api.LLM_API_KEY,
+    });
+  });
+
+  const entra = {
+    ...api,
+    LLM_API_KEY: '',
+    LLM_AUTH: 'entra',
+    ENTRA_SCOPE: 'api://api.staging.example.com/.default',
+  };
+
+  it('accepts Entra CLI, managed identity and local auto mode without an API key', () => {
+    for (const mode of ['cli', 'managed-identity', 'auto']) {
+      expect(loadConfig({ ...entra, ENTRA_AUTH_MODE: mode })).toMatchObject({
+        LLM_AUTH: 'entra', ENTRA_AUTH_MODE: mode, ENTRA_SCOPE: entra.ENTRA_SCOPE,
+      });
+    }
+    expect(loadConfig(entra).ENTRA_AUTH_MODE).toBe('cli');
+    expect(loadConfig({}).LLM_AUTH).toBe('api-key');
+  });
+
+  it('validates Entra scope and provider without exposing credentials', () => {
+    expect(() => loadConfig({ ...entra, ENTRA_SCOPE: '' })).toThrow('ENTRA_SCOPE is required');
+    expect(() => loadConfig({ ...entra, ENTRA_SCOPE: 'invalid' })).toThrow('must end with /.default');
+    expect(() => loadConfig({ ...entra, LLM_PROVIDER: 'ollama' })).toThrow('requires LLM_PROVIDER=openai-compatible');
+    expect(() => loadConfig({ ...entra, ENTRA_AUTH_MODE: 'unsupported' })).toThrow();
+    expect(() => loadConfig({ ...entra, LLM_AUTH: 'unsupported' })).toThrow();
+  });
+
+  it('requires complete service-principal credentials for sp and auto modes', () => {
+    const servicePrincipal = { AZURE_TENANT_ID: 'test-tenant', AZURE_CLIENT_ID: 'test-client', AZURE_CLIENT_SECRET: 'secret-value' };
+    expect(loadConfig({ ...entra, ...servicePrincipal, ENTRA_AUTH_MODE: 'sp' }).AZURE_CLIENT_ID).toBe('test-client');
+    for (const mode of ['sp', 'auto']) {
+      for (const name of Object.keys(servicePrincipal)) {
+        expect(() => loadConfig({ ...entra, ...servicePrincipal, ENTRA_AUTH_MODE: mode, [name]: '' })).toThrow(`${name} is required`);
+      }
+    }
+  });
+
+  it.each(['LLM_BASE_URL', 'LLM_MODEL', 'LLM_API_KEY'])('requires an explicit API %s', (name) => {
+    for (const value of [undefined, '', ' ']) {
+      expect(() => loadConfig({ ...api, [name]: value })).toThrow(`${name} is required`);
+    }
+  });
+
+  it.each(['ollama', 'YOUR_API_KEY'])('rejects the placeholder key %s for API mode', (key) => {
+    expect(() => loadConfig({ ...api, LLM_API_KEY: key })).toThrow('LLM_API_KEY must be a real API key');
+  });
+
+  it.each(['not-a-url', 'file:///secret', 'https://user:secret@example.com/v1'])('rejects invalid endpoint %s', (url) => {
+    expect(() => loadConfig({ ...api, LLM_BASE_URL: url })).toThrow('LLM_BASE_URL must be an HTTP(S) URL');
+  });
+
+  it('supports an Ollama Docker default without masking missing API configuration', () => {
+    const docker = { LLM_OLLAMA_BASE_URL: 'http://host.docker.internal:11434/v1' };
+    expect(loadConfig({ ...docker, LLM_PROVIDER: 'ollama' })).toMatchObject({
+      LLM_BASE_URL: docker.LLM_OLLAMA_BASE_URL,
+      LLM_API_KEY: 'ollama',
+      LLM_MODEL: 'qwen3:4b-instruct',
+    });
+    expect(loadConfig({ ...docker, LLM_BASE_URL: api.LLM_BASE_URL }).LLM_BASE_URL).toBe(api.LLM_BASE_URL);
+    expect(() => loadConfig({ ...api, ...docker, LLM_BASE_URL: '' })).toThrow('LLM_BASE_URL is required');
+    expect(() => loadConfig({ LLM_PROVIDER: 'unsupported' })).toThrow();
+  });
+
   it('has sensible defaults and ignores empty values', () => {
     const c = loadConfig({ LLM_MODEL: '', DEFAULT_LANGUAGE: 'nl' });
     expect(c.LLM_MODEL).toBe('qwen3:4b-instruct');
     expect(c.DEFAULT_LANGUAGE).toBe('nl');
+  });
+
+  it('can omit temperature for models that do not support it', () => {
+    expect(loadConfig({ LLM_TEMPERATURE: 'omit' }).LLM_TEMPERATURE).toBeUndefined();
+    expect(loadConfig({}).LLM_TEMPERATURE).toBe(0.3);
+    expect(() => loadConfig({ LLM_TEMPERATURE: 'invalid' })).toThrow();
   });
 
   it('parses one or more ordered wiki sources relative to the repo root', () => {
@@ -45,6 +131,116 @@ describe('config', () => {
 
   it('rejects unsupported languages', () => {
     expect(() => loadConfig({ DEFAULT_LANGUAGE: 'fr' })).toThrow();
+  });
+});
+
+describe('LLM API compatibility', () => {
+  it.each([
+    { provider: 'ollama', auth: 'api-key' },
+    { provider: 'openai-compatible', auth: 'api-key' },
+    { provider: 'openai-compatible', auth: 'entra' },
+  ])('streams text and wiki tool calls using $provider/$auth configuration', async ({ provider, auth }) => {
+    let requestBody: Record<string, unknown> | undefined;
+    let authorization: string | undefined;
+    let requestPath: string | undefined;
+    const server = createServer(async (request, response) => {
+      requestPath = request.url;
+      authorization = request.headers.authorization;
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(Buffer.from(chunk));
+      requestBody = JSON.parse(Buffer.concat(chunks).toString());
+      response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      for (const delta of [
+        { role: 'assistant', content: 'Found the wiki page.' },
+        { tool_calls: [{ index: 0, id: 'call-search', type: 'function', function: { name: 'searchWiki', arguments: '{"query":"Stripe"}' } }] },
+      ]) {
+        response.write(`data: ${JSON.stringify({ id: 'test-response', object: 'chat.completion.chunk', choices: [{ index: 0, delta }] })}\n\n`);
+      }
+      response.write(`data: ${JSON.stringify({ id: 'test-response', object: 'chat.completion.chunk', choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] })}\n\n`);
+      response.end('data: [DONE]\n\n');
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Mock API did not start');
+    const getToken = vi.fn().mockResolvedValue({ token: 'test-entra-token', expiresOnTimestamp: Date.now() + 3_600_000 });
+    const model = createLLM(loadConfig({
+      LLM_PROVIDER: provider,
+      LLM_AUTH: auth,
+      ENTRA_SCOPE: 'api://api.staging.example.com/.default',
+      LLM_BASE_URL: `http://127.0.0.1:${address.port}/v1`,
+      LLM_MODEL: 'test-tool-model',
+      LLM_API_KEY: 'test-api-key',
+      LLM_TEMPERATURE: auth === 'entra' ? 'omit' : '0.4',
+    }), auth === 'entra' ? { getToken } : undefined);
+    const chatCtx = llm.ChatContext.empty();
+    chatCtx.addMessage({ role: 'user', content: 'Search for Stripe.' });
+    const stream = model.chat({
+      chatCtx,
+      toolCtx: createWikiTools(deps()),
+      connOptions: { timeoutMs: 5000, maxRetry: 0, retryIntervalMs: 0 },
+    });
+    try {
+      const result = await stream.collect();
+      expect(result.text).toBe('Found the wiki page.');
+      expect(result.toolCalls).toMatchObject([{ name: 'searchWiki', args: '{"query":"Stripe"}' }]);
+      expect(requestPath).toBe('/v1/chat/completions');
+      expect(authorization).toBe(auth === 'entra' ? 'Bearer test-entra-token' : 'Bearer test-api-key');
+      if (auth === 'entra') expect(getToken.mock.calls[0]?.[0]).toEqual(['api://api.staging.example.com/.default']);
+      expect(requestBody).toMatchObject({
+        model: 'test-tool-model',
+        stream: true,
+        tools: expect.arrayContaining([
+          expect.objectContaining({ type: 'function', function: expect.objectContaining({ name: 'searchWiki' }) }),
+        ]),
+      });
+      if (auth === 'entra') expect(requestBody).not.toHaveProperty('temperature');
+      else expect(requestBody).toHaveProperty('temperature', 0.4);
+    } finally {
+      stream.close();
+      await model.aclose();
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+});
+
+describe('LLM preflight', () => {
+  function modelWith(collect: () => Promise<{ text: string }>) {
+    const close = vi.fn();
+    return { model: { chat: vi.fn().mockReturnValue({ collect, close }) }, close };
+  }
+
+  it('checks chat streaming with configured timeout, not model listings', async () => {
+    const { model, close } = modelWith(async () => ({ text: 'OK' }));
+    await expect(probeLLM(model, cfg)).resolves.toBe(true);
+    expect(model.chat).toHaveBeenCalledWith(expect.objectContaining({
+      connOptions: { timeoutMs: 90_000, maxRetry: 0, retryIntervalMs: 0 },
+    }));
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it('skips offline local models but fails for configured APIs', async () => {
+    const { model, close } = modelWith(async () => { throw new APIConnectionError({ message: 'private-endpoint' }); });
+    await expect(probeLLM(model, cfg)).resolves.toBe(false);
+    await expect(probeLLM(model, { ...cfg, LLM_PROVIDER: 'openai-compatible' })).rejects.toThrow('LLM preflight failed');
+    expect(close).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports HTTP errors without leaking provider messages', async () => {
+    const { model } = modelWith(async () => {
+      throw new APIStatusError({ message: 'secret-api-key', options: { statusCode: 401 } });
+    });
+    await expect(probeLLM(model, cfg)).rejects.toThrow('LLM preflight failed (HTTP 401)');
+    await expect(probeLLM(model, cfg)).rejects.not.toThrow('secret-api-key');
+  });
+
+  it('rejects an empty response', async () => {
+    const { model, close } = modelWith(async () => ({ text: '' }));
+    await expect(probeLLM(model, cfg)).rejects.toThrow('LLM preflight failed');
+    expect(close).toHaveBeenCalledOnce();
   });
 });
 

@@ -10,6 +10,31 @@ const ROOT = basename(process.cwd()) === 'frontend' ? resolve(process.cwd(), '..
 
 let loaded = false;
 
+export interface PublicModelConfig {
+  provider: 'ollama' | 'openai-compatible' | 'legacy';
+  auth: 'api-key' | 'entra';
+  model: string | null;
+}
+
+export function publicModelConfig(env: Record<string, string | undefined> = process.env): PublicModelConfig {
+  const provider = env.LLM_PROVIDER === 'ollama' || env.LLM_PROVIDER === 'openai-compatible'
+    ? env.LLM_PROVIDER
+    : env.LLM_BASE_URL || env.LLM_BASE_URL_DOCKER || env.LLM_MODEL ? 'legacy' : 'ollama';
+  return {
+    provider,
+    auth: env.LLM_AUTH === 'entra' ? 'entra' : 'api-key',
+    model: env.LLM_MODEL?.trim() || (provider === 'openai-compatible' ? null : 'qwen3:4b-instruct'),
+  };
+}
+
+export function modelSettings(): PublicModelConfig {
+  if (!loaded) {
+    loadRootEnv();
+    loaded = true;
+  }
+  return publicModelConfig();
+}
+
 /** The presentation until the user picks one: the one that matches DEFAULT_VOICE, with an avatar. */
 export function defaultPresentation(env: Record<string, string | undefined> = process.env): Presentation {
   const voice = env.DEFAULT_VOICE?.toLowerCase();

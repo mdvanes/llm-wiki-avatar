@@ -8,27 +8,22 @@
  * no code read aloud, details sent to the screen, and replies in the selected language.
  */
 import { initializeLogger, voice } from '@livekit/agents';
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { type Language, loadConfig } from '../../src/config.ts';
 import { createLLM } from '../../src/main.ts';
 import { type Mood, extractMood } from '../../src/mood.ts';
 import { RecordingPublisher, TOPICS } from '../../src/publisher.ts';
 import { WikiAgent } from '../../src/wikiAgent.ts';
 import { Wiki } from '../../src/wiki/wiki.ts';
-import { SAMPLE_WIKI } from '../helpers.ts';
+import { SAMPLE_WIKI, probeLLM } from '../helpers.ts';
 
 initializeLogger({ pretty: false, level: 'warn' });
 
 const cfg = loadConfig({ ...process.env });
-const reachable = await fetch(`${cfg.LLM_BASE_URL.replace(/\/$/, '')}/models`, {
-  headers: { authorization: `Bearer ${cfg.LLM_API_KEY}` },
-  signal: AbortSignal.timeout(3000),
-})
-  .then((r) => r.ok)
-  .catch(() => false);
-if (!reachable) console.warn(`LLM at ${cfg.LLM_BASE_URL} is unreachable; skipping evals.`);
-
 const model = createLLM(cfg);
+const reachable = await probeLLM(model, cfg);
+if (!reachable) console.warn('LLM is unreachable; skipping local evals. Check the endpoint and service.');
+afterAll(() => model.aclose());
 let wiki: Wiki;
 let session: voice.AgentSession | undefined;
 
@@ -43,7 +38,10 @@ afterEach(async () => {
 async function ask(question: string, language: Language = 'en') {
   const publisher = new RecordingPublisher();
   const agent = new WikiAgent({ wiki, cfg, publisher, language });
-  session = new voice.AgentSession({ llm: model });
+  session = new voice.AgentSession({
+    llm: model,
+    connOptions: { llmConnOptions: { timeoutMs: cfg.LLM_TIMEOUT_S * 1000 } },
+  });
   await session.start({ agent });
   const result = await session.run({ userInput: question }).wait();
   const raw = result.events

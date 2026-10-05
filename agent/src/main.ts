@@ -1,6 +1,9 @@
 import { type JobContext, ServerOptions, cli, defineAgent, log, voice } from '@livekit/agents';
 import * as openai from '@livekit/agents-plugin-openai';
+import type { TokenCredential } from '@azure/identity';
+import OpenAI from 'openai';
 import { fileURLToPath } from 'node:url';
+import { createEntraTokenProvider } from './auth.ts';
 import { type Config, type Language, isLanguage, loadConfig } from './config.ts';
 import { parseHistoryPayload } from './history.ts';
 import { LANGUAGE_PROFILES } from './language.ts';
@@ -11,11 +14,17 @@ import { Wiki } from './wiki/wiki.ts';
 /** Participant attribute the frontend sets (via its token) to choose the language. */
 export const LANGUAGE_ATTRIBUTE = 'language';
 
-export function createLLM(cfg: Config): openai.LLM {
+export function createLLM(cfg: Config, credential?: TokenCredential): openai.LLM {
   return new openai.LLM({
     model: cfg.LLM_MODEL,
     baseURL: cfg.LLM_BASE_URL,
-    apiKey: cfg.LLM_API_KEY,
+    ...(cfg.LLM_AUTH === 'entra' ? {
+      client: new OpenAI({
+        baseURL: cfg.LLM_BASE_URL,
+        apiKey: createEntraTokenProvider(cfg, credential),
+        maxRetries: 0,
+      }),
+    } : { apiKey: cfg.LLM_API_KEY }),
     temperature: cfg.LLM_TEMPERATURE,
     ...(cfg.LLM_REASONING_EFFORT ? { reasoningEffort: cfg.LLM_REASONING_EFFORT as never } : {}),
   });

@@ -1,10 +1,13 @@
 import type { Metadata } from 'next';
 import { SettingsView } from '@/components/SettingsView';
+import { modelSettings } from '@/lib/server-config';
+
+export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Speech settings · LLM Wiki Avatar',
+  title: 'Settings · LLM Wiki Avatar',
 };
 
 export default function Page() {
-  return <SettingsView />;
+  return <SettingsView modelConfig={modelSettings()} />;
 }

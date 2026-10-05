@@ -1,7 +1,7 @@
 @import 'tailwindcss';
 
 @theme {
-  /* Dark grays with KPN-style green accent. */
+  /* Dark grays with a green accent. */
   --color-bg: #212121;
   --color-panel: #171717;
   --color-panel-2: #2f2f2f;

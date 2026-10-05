@@ -259,7 +259,7 @@ export function SessionView({
             disabled={switching || !agent.isConnected}
             label={strings.language}
           />
-          <SettingsLink label={strings.speechSettings} newTab />
+          <SettingsLink label={strings.settings} newTab />
           <button
             type="button"
             onClick={() => void session.end()}

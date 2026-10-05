@@ -1,4 +1,4 @@
-# Everything runs locally on CPU. Start with:  docker compose up --build
+# Configure an OpenAI-compatible API or native Ollama, then: docker compose up --build
 # Then open http://localhost:3000
 #
 # The LLM is expected on the host (native Ollama is much faster than Ollama in Docker on a Mac).
@@ -36,9 +36,20 @@ services:
       WIKI_SOURCES: "${WIKI_SOURCES:-}"
       # Bind mounts from macOS/Windows do not deliver file events; poll instead.
       WIKI_WATCH_POLL: "true"
-      LLM_BASE_URL: ${LLM_BASE_URL_DOCKER:-http://host.docker.internal:11434/v1}
-      LLM_MODEL: ${LLM_MODEL:-qwen3:4b-instruct}
-      LLM_API_KEY: ${LLM_API_KEY:-ollama}
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      LLM_AUTH: ${LLM_AUTH:-api-key}
+      ENTRA_SCOPE: ${ENTRA_SCOPE:-}
+      ENTRA_AUTH_MODE: ${ENTRA_AUTH_MODE:-cli}
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
+      AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:-}
+      NODE_EXTRA_CA_CERTS: ${NODE_EXTRA_CA_CERTS:-}
+      LLM_BASE_URL: ${LLM_BASE_URL_DOCKER:-${LLM_BASE_URL:-}}
+      LLM_OLLAMA_BASE_URL: http://host.docker.internal:11434/v1
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.3}
+      LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-90}
       LLM_REASONING_EFFORT: ${LLM_REASONING_EFFORT:-}
       DEFAULT_LANGUAGE: ${DEFAULT_LANGUAGE:-en}
     volumes:
@@ -60,6 +71,9 @@ services:
       AGENT_NAME: ${AGENT_NAME:-llm-wiki-avatar}
       WIKI_SOURCES: "${WIKI_SOURCES:-}"
       DEFAULT_VOICE: ${DEFAULT_VOICE:-female}
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      LLM_AUTH: ${LLM_AUTH:-api-key}
+      LLM_MODEL: ${LLM_MODEL:-}
     volumes:
       - ./sample-wiki:/app/sample-wiki:ro
       - ./wikis:/app/wikis:ro

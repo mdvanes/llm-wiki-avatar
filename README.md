@@ -5,13 +5,13 @@ Dutch. A live transcript runs alongside, and commands and code snippets show up 
 aloud.
 
 It implements steps 2 and 3 of [`Voice_Interface for LLM Wiki.md`](./Voice_Interface%20for%20LLM%20Wiki.md) directly
-on [LiveKit Agents](https://docs.livekit.io/agents/) for Node, without Open WebUI. Everything runs locally: speech
-recognition and the voices in the browser, the agent and the LLM on your machine.
+on [LiveKit Agents](https://docs.livekit.io/agents/) for Node, without Open WebUI. Speech recognition and voices run
+in the browser. The agent can use a hosted OpenAI-compatible API or local Ollama.
 
 ```
 Browser (Next.js)                                         agent (Node, @livekit/agents)
   push-to-talk mic ─► Whisper in a Web Worker (WebGPU/WASM)
-  transcribed text ──lk.chat──► livekit-server (dev) ◄──►  LLM  Ollama (OpenAI API) + wiki RAG + wiki tools
+  transcribed text ──lk.chat──► livekit-server (dev) ◄──►  LLM  hosted API / Ollama + wiki RAG + wiki tools
   reply text ◄──lk.transcription──
   Kokoro (en) / Piper (nl) in a Web Worker ─► speakers + avatar lip-sync
   transcript, sources, answer cards ◄── text streams
@@ -83,33 +83,202 @@ Browser (Next.js)                                         agent (Node, @livekit/
 
 - Node.js 24 or later and npm (the agent runs TypeScript directly with Node's type stripping).
 - Docker with Compose, for the compose setup or for individual services.
-- Enough free memory for your LLM, and for the browser while it runs the speech models. The first start downloads
-  your LLM; the speech settings page downloads a Whisper model (80 MB to 600 MB) and the voices (63 MB to 330 MB
-  each) into the browser.
+- A tool-capable model on an OpenAI-compatible API, or enough free memory for local Ollama. Hosted APIs do not
+  require a local LLM download. The browser still needs memory for speech models; settings download a Whisper
+  model (80 MB to 600 MB) and the voices (63 MB to 330 MB each).
 - A browser with WebGPU (Chrome, Edge) for the best speech recognition and English voices; others fall back to the
   slower WASM.
 
 ## Quick start with docker compose
 
 ```bash
-cp .env.example .env          # optional, every setting has a default
+cp .env.example .env          # optional for Ollama defaults; never overwrite your existing configuration
 # Custom wiki folders for Compose go under ./wikis; list them in WIKI_SOURCES.
+# Configure the model connection below before starting.
 docker compose up --build
 ```
 
-Then open <http://localhost:3000> (or the port in `FRONTEND_PORT`), open **Speech settings** to download a speech
-model and the voices, pick a language and press **Start**.
+Then open <http://localhost:3000> (or the port in `FRONTEND_PORT`), open **Settings** for model setup guidance and
+speech downloads, pick a language and press **Start**. Model guidance is available in English and Dutch, alongside
+a read-only configured provider/model summary (not a connection health check).
 
 Compose starts `livekit`, `agent` and `frontend`.
 
-**LLM.** By default the agent uses Ollama running **natively on the host** (`LLM_BASE_URL_DOCKER`, default
-`http://host.docker.internal:11434/v1`). On macOS this is strongly recommended, because Docker has no access to
-Metal and Ollama inside Docker on a Mac is several times slower. To run Ollama in Docker instead:
+### Third-party API
+
+Get an API key and choose a chat-completion model that supports **streaming and tool/function calling**. Set:
+
+```dotenv
+LLM_PROVIDER=openai-compatible
+LLM_AUTH=api-key
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=YOUR_TOOL_CAPABLE_MODEL
+LLM_API_KEY=YOUR_API_KEY
+```
+
+Replace both placeholders and use your provider's API base URL, including `/v1` when required. This supports
+OpenAI-compatible APIs and gateways, not native Anthropic/Gemini protocols. Authentication supports API keys and
+Microsoft Entra ID as described below. API-key mode requires all three connection fields and rejects the Ollama
+placeholder key. Leave `LLM_REASONING_EFFORT` unset unless your provider/model supports it; set
+`LLM_TEMPERATURE=omit` for deployments that reject temperature.
+
+**Docker:** remove an old `LLM_BASE_URL_DOCKER` or set it to the hosted API URL. It overrides `LLM_BASE_URL`.
+Run ordinary `docker compose up --build` without the Ollama profile: neither Ollama image is pulled or started.
+
+Keep keys in the server environment or an uncommitted environment file, never in browser storage or
+`NEXT_PUBLIC_*` variables. Hosted providers receive questions, wiki excerpts, tool results and conversation
+context, including restored history. Requests can incur API charges. Audio recognition and voices stay local.
+
+### Microsoft Entra ID / Enterprise Gateway
+
+Use the gateway's **OpenAI v1** endpoint, not the Azure-native or Anthropic endpoint. `LLM_MODEL` must be a
+**deployment name** you are authorized to access. No `api-version` query parameter is needed. Obtain the gateway
+and model RBAC permissions first; use an account or identity authorized by your organization.
+
+For **native local development**, install Azure CLI, then sign in to the correct tenant:
+
+```bash
+az login --tenant YOUR_TENANT_ID --allow-no-subscriptions
+```
+
+Set these in root `.env.local` or `.env`, replacing the example endpoint, resource scope and deployment name with
+the values supplied by your gateway administrator:
+
+```dotenv
+LLM_PROVIDER=openai-compatible
+LLM_AUTH=entra
+LLM_BASE_URL=https://api.staging.example.com/openai/v1
+LLM_MODEL=YOUR_DEPLOYMENT_NAME
+ENTRA_SCOPE=api://api.staging.example.com/.default
+ENTRA_AUTH_MODE=cli
+LLM_TEMPERATURE=omit
+```
+
+Remove `LLM_API_KEY` (it is ignored in Entra mode), and remove an old `LLM_BASE_URL_DOCKER` or change it to the
+same gateway URL. Leave `LLM_REASONING_EFFORT` unset unless the deployment supports it. `AZURE_TENANT_ID` is
+optional in CLI mode and can pin the credential to the tenant you signed into. Start the native agent and frontend
+with `npm run dev:agent` and `npm run dev:frontend`; LiveKit must also be running.
+
+For **production gateway access**, change both environment-specific values together:
+
+```dotenv
+LLM_BASE_URL=https://api.example.com/openai/v1
+ENTRA_SCOPE=api://api.example.com/.default
+```
+
+For **Docker or deployments outside Azure**, use an authorized service principal. Add these to the same gateway
+configuration, replacing the placeholders with its tenant ID, application/client ID (not object ID), and secret:
+
+```dotenv
+ENTRA_AUTH_MODE=sp
+AZURE_TENANT_ID=YOUR_TENANT_ID
+AZURE_CLIENT_ID=YOUR_APPLICATION_ID
+AZURE_CLIENT_SECRET=YOUR_CLIENT_SECRET
+```
+
+```bash
+docker compose --env-file .env.local up -d --build --force-recreate agent frontend
+```
+
+The standard agent image has neither Azure CLI nor access to your host's CLI login. Do not choose `cli` for that
+image or mount your host login cache. Credentials are passed only to the agent; the frontend receives only the
+provider/model and authentication type. Keep the secret uncommitted or inject it through deployment secret
+management, never the browser.
+
+For **Azure managed identity**, set `ENTRA_AUTH_MODE=managed-identity` on an Azure host exposing the managed
+identity endpoint. Set `AZURE_CLIENT_ID` for a user-assigned identity and grant it gateway/model access; omit it
+for a system-assigned identity. No client secret is needed. This uses managed identity endpoints, not AKS federated
+workload identity. For deployments using service-principal credentials, use `sp`.
+
+`ENTRA_AUTH_MODE=auto` selects service-principal mode when any of `AZURE_TENANT_ID`,
+`AZURE_CLIENT_ID` or `AZURE_CLIENT_SECRET` is configured; all three must then be present.
+Otherwise it uses Azure CLI. Prefer an explicit mode for predictable identity selection; auto does not detect
+managed identity. Azure Identity caches tokens and refreshes them before expiry, and the OpenAI client gets a
+current token for every request. Do not copy an expiring access token into `LLM_API_KEY`.
+
+Troubleshooting: token acquisition errors usually indicate a missing CLI login or invalid service-principal
+credentials. A 401 can indicate a wrong tenant or scope; a 403 usually indicates missing gateway/model permissions.
+A 404 may mean the deployment name is wrong. Token acquisition cannot grant RBAC access automatically.
+
+#### Private CA Certificates
+
+If corporate TLS requires your approved PEM CA certificate, use Node's extra trust store rather than disabling
+verification. For native development, export it **before starting Node**:
+
+```bash
+export NODE_EXTRA_CA_CERTS="$PWD/certs/organization-ca.pem"
+npm run dev:agent
+```
+
+The certificate must exist at that path. Setting this only in a dotenv file loaded by the native agent is too late;
+Node reads it at process startup.
+
+For Docker, provide a local Compose override with a read-only mount of the approved certificate:
+
+```yaml
+services:
+  agent:
+    environment:
+      NODE_EXTRA_CA_CERTS: /app/certs/organization-ca.pem
+    volumes:
+      - ./certs/organization-ca.pem:/app/certs/organization-ca.pem:ro
+```
+
+Include that override using an additional `-f` argument, or use the default `docker-compose.override.yml` convention.
+The path inside the container must match `NODE_EXTRA_CA_CERTS`. Do not set `NODE_TLS_REJECT_UNAUTHORIZED=0`.
+
+### Ollama (Native or Docker)
+
+By default the agent uses Ollama **natively on the host**. Install it from <https://ollama.com>, start it
+(`ollama serve` if needed), and download a model with `ollama pull qwen3:4b-instruct`. Native settings:
+
+```dotenv
+LLM_PROVIDER=ollama
+LLM_AUTH=api-key
+LLM_BASE_URL=http://localhost:11434/v1
+LLM_MODEL=qwen3:4b-instruct
+LLM_API_KEY=ollama
+```
+
+For a **Docker agent with native Ollama**, additionally set
+`LLM_BASE_URL_DOCKER=http://host.docker.internal:11434/v1`. This is also Docker's Ollama-only default when no
+endpoint is configured. On macOS native Ollama is recommended: Docker cannot use Metal.
+
+To run **Ollama in Docker**, use the Ollama settings above, change the override to the service hostname, and enable
+the optional profile:
 
 ```bash
 # .env: LLM_BASE_URL_DOCKER=http://ollama:11434/v1
 docker compose --profile ollama up --build     # also pulls LLM_MODEL
 ```
+
+Set an Ollama model name before enabling the profile; the model-pull service uses `LLM_MODEL`, not a hosted API
+model ID. Both `ollama` and `ollama-pull` are optional and are never required dependencies of the agent.
+
+### Apply Changes or Fall Back
+
+Switching is **manual**, with no automatic failover or replay. To fall back from an API, restore the Ollama provider,
+model, key and endpoint settings above, set `LLM_AUTH=api-key`, and start native Ollama or enable its profile.
+Then recreate the services:
+
+```bash
+docker compose up -d --build --force-recreate agent frontend
+# For containerized Ollama instead:
+docker compose --profile ollama up -d --build
+```
+
+A simple `docker compose restart` does not load new environment values. Restart both native processes when not
+using Docker. End the existing conversation, reload settings, and start a new conversation.
+
+Native services read root `.env.local` before `.env`; existing process environment wins. Compose reads `.env` by
+default and does not automatically read `.env.local`. To use it, add `--env-file .env.local` to every Compose
+command. Docker endpoint precedence is `LLM_BASE_URL_DOCKER`, then `LLM_BASE_URL`, then the Ollama-only
+`LLM_OLLAMA_BASE_URL` default supplied by Compose. Unset `LLM_PROVIDER` preserves legacy connection settings.
+
+For failures, check agent logs: authentication errors indicate a key problem; model-not-found usually means an
+incorrect model ID or endpoint; connection errors require checking service availability and Docker hostnames.
+Increase `LLM_TIMEOUT_S` for slow models. Remove unsupported reasoning/temperature options or choose a compatible
+model. The frontend settings page includes these troubleshooting steps.
 
 ## Production with docker compose
 
@@ -127,7 +296,9 @@ docker compose -f docker-compose.prod.yml up -d
 
 Browsers only allow the microphone and WebGPU on https, so put the frontend (3000) and LiveKit signalling (7880)
 behind a TLS reverse proxy, and open 7881/tcp and 7882/udp for WebRTC media. The frontend has no authentication (see
-below).
+below). Restrict access at the reverse proxy before enabling paid APIs, otherwise anyone who can reach the app
+can spend your API quota. Use the same model settings as development; add `-f docker-compose.prod.yml` to Compose
+commands and omit `--build`. New configuration/UI behavior requires images built from this version of the code.
 
 ## Native development
 
@@ -136,7 +307,7 @@ Run the services natively, or in containers:
 ```bash
 # LiveKit (dev keys devkey/secret)
 brew install livekit && livekit-server --dev              # or: docker compose up livekit
-# LLM
+# LLM (skip for a hosted API configured as above)
 ollama pull qwen3:4b-instruct                              # or any model, see below
 ```
 
@@ -154,20 +325,31 @@ npm run dev:agent
 npm run dev:frontend
 ```
 
-Both read the `.env` in the repo root.
+Both read `.env.local` and `.env` in the repo root, with `.env.local` taking precedence.
 
 The frontend is built with webpack (`next dev --webpack` / `next build --webpack`, already in the scripts). Both
 scripts first copy the ONNX Runtime and eSpeak NG WASM files to `frontend/public/speech/`.
 
 ## Configuration
 
-`.env.example` lists every setting with its default. The ones you are most likely to change:
+`.env.example` lists the existing settings. The model-provider options and examples are documented above.
+The settings you are most likely to change:
 
 | Setting | Default | Notes |
 |---|---|---|
 | `WIKI_SOURCES` | one `sample-wiki` source | Ordered JSON array of `{ "id", "name", "path" } entries. Relative paths resolve from the repo root; native runs may also use absolute paths. For Compose, custom folders must be under `./wikis`. First source wins ambiguous title lookups; search includes every source. |
+| `LLM_PROVIDER` | legacy configuration | `ollama` or `openai-compatible`. Explicit API mode requires URL/model and the selected authentication configuration. Unset preserves existing settings. |
+| `LLM_AUTH` | `api-key` | `api-key` for static keys/Ollama, or `entra` for cached and refreshed Microsoft Entra tokens. Entra requires `openai-compatible`. |
+| `ENTRA_SCOPE` | unset | Required in Entra mode. Gateway resource scope ending in `/.default`; must match the endpoint environment. |
+| `ENTRA_AUTH_MODE` | `cli` | `cli`, `sp`, `managed-identity`, or explicit `auto` (SP fields present: service principal; otherwise CLI). |
+| `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` | unset | All required for service principal. Tenant optional for CLI; client ID selects a user-assigned managed identity. Agent-only credentials. |
+| `LLM_BASE_URL` | `http://localhost:11434/v1` for native Ollama | HTTP(S) OpenAI-compatible API endpoint, without embedded credentials. Required in explicit API mode. |
+| `LLM_BASE_URL_DOCKER` | unset | Docker-only endpoint override, taking precedence over `LLM_BASE_URL`. |
+| `LLM_API_KEY` | `ollama` for local mode | Server-only key, required for explicit API-key mode and ignored in Entra mode. Never use `NEXT_PUBLIC_*`. |
 | `LLM_MODEL` | `qwen3:4b-instruct` | Any model with tool calling on an OpenAI-compatible server. |
-| `LLM_REASONING_EFFORT` | unset | Set to `none` for reasoning models such as `qwen3.5` for a much faster first word. |
+| `LLM_TEMPERATURE` | `0.3` | Between 0 and 2, or `omit` to leave the parameter out for models that reject it. |
+| `LLM_TIMEOUT_S` | `90` | Connection/first-response timeout in seconds, also passed through Compose. |
+| `LLM_REASONING_EFFORT` | unset | Set only when supported. For local `qwen3.5`, `none` gives a faster first word. |
 | `DEFAULT_VOICE` | `female` | `off`, `female` or `male`: the voice until the user picks one in the browser. |
 | `DEFAULT_LANGUAGE` | `en` | Used when the browser sends no language. |
 
@@ -206,13 +388,24 @@ one Kokoro model; on WebGPU it runs in full precision (about 330 MB), otherwise 
 
 ```bash
 npm test          # unit tests (agent + frontend), no services needed
-npm run eval      # agent behaviour evals against the real LLM (needs Ollama and LLM_MODEL)
+npm run eval      # real configured API or Ollama; hosted calls may incur charges
 npm run typecheck
+```
+
+Playwright is a frontend development dependency for browser verification. Install Chromium once in the ignored
+workspace cache, and use the same `PLAYWRIGHT_BROWSERS_PATH` when running browser checks:
+
+```bash
+PLAYWRIGHT_BROWSERS_PATH="$PWD/node_modules/.cache/ms-playwright" npx --no-install playwright install chromium
 ```
 
 The evals check that answers are short and grounded in the wiki, that commands are not spelled out in the spoken
 answer, that `showOnScreen` is used for commands, that the agent admits when something isn't in the wiki, and that a
 Dutch question gets a Dutch answer.
+
+Evals first make a small streaming chat request through the same configured client; they do not require a
+`/models` endpoint. An unreachable local/legacy service skips the evals; explicit API failures and HTTP errors
+fail with setup guidance. Run them once for the hosted model and once for Ollama to verify both configurations.
 
 ## Repository layout
 
@@ -228,7 +421,8 @@ docker-compose.yml, docker-compose.prod.yml, .env.example
 
 - **No authentication.** Anyone who can reach port 3000 can start a session and read the wiki. LiveKit runs in dev
   mode with the well-known `devkey`/`secret`. Keep it on localhost or a trusted network, or add auth to
-  `frontend/app/api/token` and real LiveKit keys before sharing it.
+  `frontend/app/api/token` and real LiveKit keys before sharing it. With a hosted model, unauthorized sessions can
+  also consume your paid API quota; restrict access at a reverse proxy.
 - **Other machines.** To use it from another machine, set `LIVEKIT_PUBLIC_URL` to a URL the browser can reach, and
   change `--node-ip` in `docker-compose.yml` to the host's LAN IP.
 - **Dutch speech recognition.** Whisper Base handles Dutch that is full of English technical terms poorly; Small is

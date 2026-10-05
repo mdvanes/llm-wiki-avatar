@@ -56,7 +56,7 @@ export function WelcomeView({
             strings={strings}
             disabled={connecting}
           />
-          <SettingsLink label={strings.speechSettings} />
+          <SettingsLink label={strings.settings} />
         </div>
         {!sttModel && <p className="text-sm text-muted">{strings.noSpeechModel}</p>}
         <button
