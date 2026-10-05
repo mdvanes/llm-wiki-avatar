@@ -1,12 +1,22 @@
 import type { Lipsync, Voice } from './protocol';
 
 /**
- * How the agent answers: text only, a voice, or a voice with a talking avatar. `avatar-female-premium` lip-syncs
- * to Kokoro's word timings (English only; elsewhere it falls back to loudness lip-sync).
+ * How the agent answers: text only, a voice, or a voice with a talking avatar. `avatar-female-premium` and
+ * `avatar-female-vrm` lip-sync to Kokoro's word timings (English only; elsewhere they fall back to loudness lip-sync).
+ * `avatar-female-vrm` is a 3D VRM model instead of an animated photo.
  */
-export const PRESENTATIONS = ['off', 'voice-female', 'voice-male', 'avatar-female-premium', 'avatar-male'] as const;
+export const PRESENTATIONS = [
+  'off',
+  'voice-female',
+  'voice-male',
+  'avatar-female-premium',
+  'avatar-female-vrm',
+  'avatar-male',
+] as const;
 export type Presentation = (typeof PRESENTATIONS)[number];
 export type AvatarGender = 'female' | 'male';
+/** `photo`: the animated photo (or the cartoon without WebGL); `vrm`: a 3D VRM model. */
+export type AvatarKind = 'photo' | 'vrm';
 
 export const DEFAULT_PRESENTATION: Presentation = 'avatar-female-premium';
 
@@ -26,9 +36,15 @@ export function avatarOf(presentation: Presentation): AvatarGender | null {
   return presentation.startsWith('avatar-') ? (voiceOf(presentation) as AvatarGender) : null;
 }
 
+/** How the avatar is drawn, or null for no avatar. */
+export function avatarKindOf(presentation: Presentation): AvatarKind | null {
+  if (!presentation.startsWith('avatar-')) return null;
+  return presentation === 'avatar-female-vrm' ? 'vrm' : 'photo';
+}
+
 /** How the avatar's mouth follows the voice. */
 export function lipsyncOf(presentation: Presentation): Lipsync {
-  return presentation === 'avatar-female-premium' ? 'words' : 'audio';
+  return presentation === 'avatar-female-premium' || presentation === 'avatar-female-vrm' ? 'words' : 'audio';
 }
 
 /** The presentation that matches the default voice (`DEFAULT_VOICE`), with an avatar. */

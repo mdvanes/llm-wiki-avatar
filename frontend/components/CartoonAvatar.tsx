@@ -2,30 +2,23 @@
 
 import type { AgentState } from '@livekit/components-react';
 import { useEffect, useId, useRef, useState } from 'react';
+import { type MoodEvent, useAvatarDriver } from '@/hooks/useAvatarDriver';
 import { LOOKS } from '@/lib/cartoon/character';
-import { FaceAnimator } from '@/lib/cartoon/face';
 import { mouthPose } from '@/lib/cartoon/mouth';
 import type { PhotoMesh } from '@/lib/photo/mesh';
 import { FEMALE_PHOTO } from '@/lib/photo/female';
 import { MALE_PHOTO } from '@/lib/photo/male';
-import { LipSync, brightness, rms } from '@/lib/lipsync';
 import type { AvatarGender } from '@/lib/presentation';
-import type { Lipsync, Mood } from '@/lib/protocol';
-import { ipaToVisemes } from '@/lib/tts/visemes';
-import { REST, WordLipSync, type WordSource } from '@/lib/wordLipsync';
+import type { Lipsync } from '@/lib/protocol';
+import type { WordSource } from '@/lib/wordLipsync';
 import { CartoonCharacter } from './cartoon/CartoonCharacter';
 import { Parts, drawFrame } from './cartoon/draw';
 import { PhotoRenderer } from './photo/PhotoRenderer';
 import { SpinnerOverlay } from './Spinner';
 
-export interface MoodEvent {
-  mood: Mood;
-  /** Increments per event so the same mood twice still counts as a new event. */
-  seq: number;
-}
+export type { MoodEvent };
 
-interface Props {
-  gender: AvatarGender;
+export interface AvatarProps {
   /** Accessible name of the avatar. */
   label: string;
   /** Shown on photo avatars, so nobody takes the person for real. */
@@ -43,42 +36,15 @@ interface Props {
   className?: string;
 }
 
+interface Props extends AvatarProps {
+  gender: AvatarGender;
+}
+
 /** Avatars that are an animated photo; the others are drawn cartoons. */
 const PHOTOS: Partial<Record<AvatarGender, { mesh: PhotoMesh; image: string; background?: string }>> = {
   male: { mesh: MALE_PHOTO, image: '/avatars/male.webp', background: '/avatars/male-bg.webp' },
   female: { mesh: FEMALE_PHOTO, image: '/avatars/female.webp', background: '/avatars/female-bg.webp' },
 };
-
-/** Audio analysis chain for the voice; not connected to the speakers (the speech player plays it). */
-class VoiceAnalyser {
-  readonly ctx = new AudioContext();
-  readonly #analyser: AnalyserNode;
-  readonly #source: MediaStreamAudioSourceNode;
-  readonly #time: Float32Array<ArrayBuffer>;
-  readonly #freq: Uint8Array<ArrayBuffer>;
-
-  constructor(track: MediaStreamTrack) {
-    this.#source = this.ctx.createMediaStreamSource(new MediaStream([track]));
-    this.#analyser = this.ctx.createAnalyser();
-    this.#analyser.fftSize = 1024;
-    this.#analyser.smoothingTimeConstant = 0.2;
-    this.#source.connect(this.#analyser);
-    this.#time = new Float32Array(this.#analyser.fftSize);
-    this.#freq = new Uint8Array(this.#analyser.frequencyBinCount);
-    void this.ctx.resume().catch(() => {});
-  }
-
-  sample(): { level: number; tone: number } {
-    this.#analyser.getFloatTimeDomainData(this.#time);
-    this.#analyser.getByteFrequencyData(this.#freq);
-    return { level: rms(this.#time), tone: brightness(this.#freq, this.ctx.sampleRate) };
-  }
-
-  close(): void {
-    this.#source.disconnect();
-    void this.ctx.close().catch(() => {});
-  }
-}
 
 /** A 2D cartoon avatar that lip-syncs to the agent's voice and reacts to its mood and state. */
 export function CartoonAvatar({
@@ -91,7 +57,7 @@ export function CartoonAvatar({
   agentState,
   mood,
   lipsync = 'audio',
-  words: wordSource,
+  words,
   className,
 }: Props) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
@@ -100,12 +66,9 @@ export function CartoonAvatar({
   // Without WebGL the photo avatar falls back to the drawn cartoon.
   const [noWebGL, setNoWebGL] = useState(false);
   const photo = noWebGL ? undefined : PHOTOS[gender];
-  const analyserRef = useRef<VoiceAnalyser | null>(null);
-  const loudness = useRef(new LipSync());
-  const words = useRef<WordLipSync | null>(null);
-  const face = useRef<FaceAnimator | null>(null);
-  const live = useRef({ agentState, lipsync });
-  live.current = { agentState, lipsync };
+  const drive = useAvatarDriver({ audioTrack, mood, lipsync, words });
+  const live = useRef(agentState);
+  live.current = agentState;
 
   // The animation loop.
   useEffect(() => {
@@ -124,74 +87,21 @@ export function CartoonAvatar({
       if (!svgRef.current) return;
       parts = new Parts(svgRef.current);
     }
-    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-    const animator = new FaceAnimator({ motion: reducedMotion ? 0.3 : 1 });
-    face.current = animator;
     const look = LOOKS[gender];
     let last = performance.now();
     let frame = requestAnimationFrame(function tick(now) {
       frame = requestAnimationFrame(tick);
       const dt = Math.min(100, now - last);
       last = now;
-      const { agentState: state, lipsync: mode } = live.current;
-
-      let shape = REST;
-      let level = 0;
-      const analyser = analyserRef.current;
-      if (analyser) {
-        const sample = analyser.sample();
-        // Keep the loudness lip-sync running, so it can take over smoothly where there are no word timings.
-        const byLoudness = loudness.current.update(sample.level, sample.tone, dt);
-        const byWords = mode === 'words' ? words.current?.update(now, sample.level, dt) : null;
-        shape = byWords ?? { ...REST, ...byLoudness };
-        level = loudness.current.level;
-      }
-
-      const pose = animator.update(now, dt, { state, level });
+      const { pose, shape } = drive(now, dt, live.current);
       if (renderer) renderer.draw(pose, mouthPose(shape, pose.smile));
       else if (parts) drawFrame(parts, look, pose, shape);
     });
     return () => {
       cancelAnimationFrame(frame);
       renderer?.dispose();
-      face.current = null;
     };
-  }, [gender, photo]);
-
-  // Moods from the agent's [mood:x] tags.
-  useEffect(() => {
-    if (mood) face.current?.setMood(mood.mood, performance.now());
-  }, [mood, gender]);
-
-  // Follow the agent's audio track for lip-sync.
-  useEffect(() => {
-    if (!audioTrack) return;
-    const analyser = new VoiceAnalyser(audioTrack);
-    analyserRef.current = analyser;
-    return () => {
-      analyserRef.current = null;
-      loudness.current.reset();
-      words.current?.clear();
-      analyser.close();
-    };
-  }, [audioTrack]);
-
-  // Word timings for the premium avatar.
-  useEffect(() => {
-    if (lipsync !== 'words') {
-      words.current?.clear();
-      return;
-    }
-    words.current ??= new WordLipSync(ipaToVisemes);
-  }, [lipsync]);
-  useEffect(
-    () =>
-      wordSource?.subscribe((event) => {
-        if (!event) words.current?.clear();
-        else if (live.current.lipsync === 'words') words.current?.add(event.segment, performance.now(), event.startsAt);
-      }),
-    [wordSource],
-  );
+  }, [gender, photo, drive]);
 
   return (
     <div

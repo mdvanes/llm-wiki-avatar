@@ -52,7 +52,8 @@ Browser (Next.js)                                         agent (Node, @livekit/
   settings. By default the transcript shows a reply along with the voice, a sentence at a time; *Show dialog without
   delay* (on the settings page) shows it as it arrives.
 - **Voice and avatar.** A menu (on the start screen and in the header) picks how the agent answers: *Off* (text
-  replies only; you can still talk to it), *Voice only* (female or male) or *Voice and avatar* (female or male). The
+  replies only; you can still talk to it), *Voice only* (female or male) or *Voice and avatar* (female, female 2 or
+  male). The
   choice is remembered in the browser and applies right away; a reply that is being spoken in another voice is
   stopped and shown in full. Push-to-talk keeps working with every choice.
 - **Stop button.** While a reply is spoken, the *Send* button becomes *Stop*. Clicking it silences the voice and the
@@ -74,10 +75,15 @@ Browser (Next.js)                                         agent (Node, @livekit/
   - Lip-sync is driven by the loudness of the voice, so it works for any voice and language.
   - *Voice and avatar, female (premium)* uses word-timed lip-sync instead: Kokoro's timestamped model reports how
     long each sound lasts, and the browser turns the sounds into overlapping visemes in time with the audio, for
-    smoother mouth shapes. Dutch and the other options use loudness lip-sync.
+    smoother mouth shapes. *Female 2* (below) does the same. Dutch and the other options use loudness lip-sync.
   - The agent starts each reply with a `[mood:x]` tag (`neutral`, `happy`, `sad`, `confused`). The tag is removed
     from the reply and sets the avatar's brows, eyes and smile.
   - Listening, thinking and speaking each drive their own idle behaviour.
+- **3D avatar.** *Voice and avatar, female 2* is a 3D [VRM](https://vrm.dev/en/) model (Ember, 5 MB, in
+  `frontend/public/avatars/ember.vrm`) drawn with three.js and `@pixiv/three-vrm`, which are only loaded for this
+  option. It uses the same word-timed lip-sync, moods and idle behaviour, but drives the model's own ARKit and
+  viseme blend shapes, eye bones and neck, chest and shoulder bones (`frontend/lib/vrm/rig.ts`). Without WebGL, or
+  if the model fails to load, the female photo avatar is shown instead.
 
 ## Requirements
 
@@ -438,3 +444,6 @@ docker-compose.yml, docker-compose.prod.yml, .env.example
   [woman](https://unsplash.com/photos/a-woman-in-glasses-stands-with-arms-crossed-outdoors-J_9U-jTWGIw). See
   `frontend/public/avatars/CREDITS.md`. They show real people, and Unsplash photos come without a model release, so
   the photo avatars carry a small "AI avatar" label.
+- **3D avatar.** *Voice and avatar, female 2* is [Ember](https://vtubeme.com/free-vrm-avatars/ember) by
+  [VTubeMe](https://vtubeme.com), used unmodified under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/);
+  the avatar shows a credit link.

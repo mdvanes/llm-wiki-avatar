@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   PRESENTATIONS,
+  avatarKindOf,
   avatarOf,
   isPresentation,
   lipsyncOf,
@@ -13,12 +14,13 @@ import { defaultPresentation } from '@/lib/server-config';
 
 describe('presentation', () => {
   it('maps each option to a voice and an avatar', () => {
-    expect(PRESENTATIONS.map((p) => [p, voiceOf(p), avatarOf(p), lipsyncOf(p)])).toEqual([
-      ['off', 'off', null, 'audio'],
-      ['voice-female', 'female', null, 'audio'],
-      ['voice-male', 'male', null, 'audio'],
-      ['avatar-female-premium', 'female', 'female', 'words'],
-      ['avatar-male', 'male', 'male', 'audio'],
+    expect(PRESENTATIONS.map((p) => [p, voiceOf(p), avatarOf(p), avatarKindOf(p), lipsyncOf(p)])).toEqual([
+      ['off', 'off', null, null, 'audio'],
+      ['voice-female', 'female', null, null, 'audio'],
+      ['voice-male', 'male', null, null, 'audio'],
+      ['avatar-female-premium', 'female', 'female', 'photo', 'words'],
+      ['avatar-female-vrm', 'female', 'female', 'vrm', 'words'],
+      ['avatar-male', 'male', 'male', 'photo', 'audio'],
     ]);
   });
 
@@ -60,6 +62,8 @@ describe('presentation', () => {
       stubStorage();
       savePresentation('voice-female');
       expect(loadPresentation()).toBe('voice-female');
+      savePresentation('avatar-female-vrm');
+      expect(loadPresentation()).toBe('avatar-female-vrm');
     });
   });
 });

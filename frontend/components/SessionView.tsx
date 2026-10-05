@@ -7,6 +7,7 @@ import {
   useSessionMessages,
 } from '@livekit/components-react';
 import type { AgentState } from '@livekit/components-react';
+import dynamic from 'next/dynamic';
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useConversationRecorder } from '@/hooks/useConversationRecorder';
 import { usePushToTalk } from '@/hooks/usePushToTalk';
@@ -18,6 +19,7 @@ import type { Language, Strings } from '@/lib/language';
 import {
   INSTANT_TRANSCRIPT_KEY,
   type Presentation,
+  avatarKindOf,
   avatarOf,
   lipsyncOf,
   loadInstantTranscript,
@@ -42,6 +44,12 @@ import { PresentationSelector } from './PresentationSelector';
 import { SettingsLink } from './SettingsLink';
 import { SourceChips } from './SourceChips';
 import { Transcript, toTranscriptEntry } from './Transcript';
+
+// three.js is only loaded for the VRM avatar.
+const VrmAvatar = dynamic(() => import('./vrm/VrmAvatar').then((m) => m.VrmAvatar), {
+  ssr: false,
+  loading: () => <div className="h-[50vh] min-h-[240px] bg-[#23252a]" />,
+});
 
 interface Props {
   strings: Strings;
@@ -175,6 +183,7 @@ export function SessionView({
 
   const voice = voiceOf(presentation);
   const gender = avatarOf(presentation);
+  const avatarKind = avatarKindOf(presentation);
   const { spec, missing: voiceMissing } = useVoice(language, voice === 'off' ? null : voice);
   const instant = useInstantTranscript();
   const speech = useReplySpeech({
@@ -280,9 +289,22 @@ export function SessionView({
         <section className="flex min-h-0 flex-col gap-4">
           <div className="flex shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-panel">
             <div className="relative">
-              {gender ? (
+              {avatarKind === 'vrm' ? (
+                <VrmAvatar
+                  label={strings.avatarFemale2}
+                  aiLabel={strings.aiAvatar}
+                  loadingLabel={strings.loadingAvatar}
+                  creditLabel={strings.avatarCredit}
+                  className="h-[50vh] min-h-[240px]"
+                  audioTrack={speech.player?.track}
+                  agentState={agentState}
+                  mood={mood}
+                  lipsync={lipsyncOf(presentation)}
+                  words={speech.player}
+                />
+              ) : gender ? (
                 <CartoonAvatar
-                  key={gender}
+                  key={presentation}
                   gender={gender}
                   label={gender === 'female' ? strings.avatarFemale : strings.avatarMale}
                   aiLabel={strings.aiAvatar}
