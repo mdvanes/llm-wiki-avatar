@@ -1,5 +1,5 @@
 /**
- * Tier 0 lip-sync: turns the loudness and rough spectral shape of the agent's audio into mouth
+ * Tier 0 lip-sync: turns the loudness and rough spectral shape of the voice into mouth
  * shapes (Oculus visemes + ARKit jawOpen). It is language-independent, which suits English and
  * Dutch alike, and needs nothing from the TTS but the audio itself.
  */

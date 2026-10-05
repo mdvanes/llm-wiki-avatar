@@ -2,7 +2,7 @@
  * Kokoro text handling: English text normalization and phoneme clean-up ported from kokoro-js
  * (https://github.com/hexgrad/kokoro, Apache-2.0), and word timings from the timestamped model's durations.
  */
-import type { WordTiming } from '@/lib/protocol';
+import type { WordTiming } from '@/lib/wordLipsync';
 
 export const KOKORO_SAMPLE_RATE = 24_000;
 /** Kokoro's context is 512 tokens, including the padding at both ends. */

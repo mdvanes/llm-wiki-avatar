@@ -1,4 +1,4 @@
-import type { WordTiming } from '@/lib/protocol';
+import type { WordTiming } from '@/lib/wordLipsync';
 import type { VoiceSpec } from './voices';
 
 export interface Speech {

@@ -1,7 +1,6 @@
 import { ReadableStream } from 'node:stream/web';
 import { describe, expect, it } from 'vitest';
 import { type Mood, MoodFilter, extractMood, normalizeMood } from '../src/mood.ts';
-import { SpeechFilter, speakableCode, speakableText } from '../src/speechFilter.ts';
 import { type StreamingTextFilter, filterText, filterTextStream } from '../src/textStream.ts';
 
 /** Feeds text to a filter in every possible 2-way split and in single characters. */
@@ -41,48 +40,6 @@ describe('MoodFilter', () => {
   it('drops a truncated tag at the end but keeps other brackets', () => {
     expect(filterText('Done [mood:ha', new MoodFilter())).toBe('Done ');
     expect(filterText('Array [0', new MoodFilter())).toBe('Array [0');
-  });
-});
-
-describe('speakableCode / speakableText', () => {
-  it.each([
-    ['getUserByID', 'get User By ID'],
-    ['InvoiceScheduler', 'Invoice Scheduler'],
-    ['mw.go', 'mw dot go'],
-    ['k8s-staging-eu2', 'k8s staging eu2'],
-    ['services/auth', 'services auth'],
-    ['foo(bar)', ''],
-    ['x'.repeat(61), ''],
-  ])('speakableCode(%s) = %s', (code, spoken) => {
-    expect(speakableCode(code)).toBe(spoken);
-  });
-
-  it('simplifies wikilinks and URLs', () => {
-    expect(speakableText('See [[Auth Service]] or [[Billing Service|billing]] at https://www.example.com/a/b.')).toBe(
-      'See Auth Service or billing at example.com.',
-    );
-  });
-});
-
-describe('SpeechFilter', () => {
-  it('drops code blocks and humanizes inline code for any chunking', () => {
-    const text =
-      'Call `getUserByID` first.\n```go\nfunc main() {\n  fmt.Println("hi")\n}\n```\nThen see [[Auth Service|auth]] docs.';
-    const results = allSplits(text, () => new SpeechFilter()).map((r) => r.replace(/\s+/g, ' ').trim());
-    expect(new Set(results)).toEqual(new Set(['Call get User By ID first. Then see auth docs.']));
-  });
-
-  it('drops unfinished code blocks', () => {
-    expect(filterText('Here:\n```bash\nmake dev', new SpeechFilter()).trim()).toBe('Here:');
-  });
-
-  it('treats a stray backtick as text', () => {
-    const out = filterText(`It's 5 o\`clock and ${'long text '.repeat(10)}`, new SpeechFilter());
-    expect(out).toContain('clock');
-  });
-
-  it('handles double-backtick spans', () => {
-    expect(filterText('Use ``refreshToken`` now.', new SpeechFilter())).toBe('Use refresh Token now.');
   });
 });
 

@@ -4,29 +4,19 @@ import { useTextStream } from '@livekit/components-react';
 import { useMemo } from 'react';
 import type { MoodEvent } from '@/components/CartoonAvatar';
 import { isLanguage, type Language } from '@/lib/language';
-import {
-  type Answer,
-  REPLY_TARGET_ATTRIBUTE,
-  type Source,
-  type SourcesUpdate,
-  TOPICS,
-  isMood,
-  parseJson,
-} from '@/lib/protocol';
-import type { FullReply } from '@/lib/reply';
+import { type Answer, type Source, type SourcesUpdate, TOPICS, isMood, parseJson } from '@/lib/protocol';
 
 export interface AnswerEvent extends Answer {
   id: string;
   timestamp: number;
 }
 
-/** Side-channel data the agent publishes next to its voice: mood, on-screen answers, sources, language, stopped replies. */
+/** Side-channel data the agent publishes next to its replies: mood, on-screen answers, sources, language. */
 export function useWikiStreams() {
   const { textStreams: moodStreams } = useTextStream(TOPICS.mood);
   const { textStreams: answerStreams } = useTextStream(TOPICS.answer);
   const { textStreams: sourceStreams } = useTextStream(TOPICS.sources);
   const { textStreams: languageStreams } = useTextStream(TOPICS.language);
-  const { textStreams: replyStreams } = useTextStream(TOPICS.reply);
 
   const mood = useMemo<MoodEvent | undefined>(() => {
     const last = moodStreams.at(-1);
@@ -55,16 +45,5 @@ export function useWikiStreams() {
     return isLanguage(last) ? last : undefined;
   }, [languageStreams]);
 
-  const replies = useMemo<FullReply[]>(
-    () =>
-      replyStreams.map((s) => ({
-        id: s.streamInfo.id,
-        target: s.streamInfo.attributes?.[REPLY_TARGET_ATTRIBUTE] ?? '',
-        text: s.text,
-        timestamp: s.streamInfo.timestamp,
-      })),
-    [replyStreams],
-  );
-
-  return { mood, answers, sources, agentLanguage, replies };
+  return { mood, answers, sources, agentLanguage };
 }

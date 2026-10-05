@@ -12,7 +12,6 @@
     "start": "node src/main.ts start",
     "console": "node src/main.ts console",
     "download-files": "livekit-agents download-files",
-    "smoke": "node scripts/smoke.ts",
     "test": "vitest --run --exclude 'test/evals/**'",
     "eval": "vitest --run test/evals",
     "typecheck": "tsc --noEmit"

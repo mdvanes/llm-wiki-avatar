@@ -2,7 +2,7 @@ import type { Lipsync, Voice } from './protocol';
 
 /**
  * How the agent answers: text only, a voice, or a voice with a talking avatar. `avatar-female-premium` lip-syncs
- * to word timings from the TTS (English only; elsewhere it falls back to the regular voice and loudness lip-sync).
+ * to Kokoro's word timings (English only; elsewhere it falls back to loudness lip-sync).
  */
 export const PRESENTATIONS = ['off', 'voice-female', 'voice-male', 'avatar-female-premium', 'avatar-male'] as const;
 export type Presentation = (typeof PRESENTATIONS)[number];
@@ -16,7 +16,7 @@ export function isPresentation(value: unknown): value is Presentation {
   return typeof value === 'string' && (PRESENTATIONS as readonly string[]).includes(value);
 }
 
-/** The voice the agent should use. */
+/** The voice that speaks the replies. */
 export function voiceOf(presentation: Presentation): Voice {
   return presentation === 'off' ? 'off' : presentation.endsWith('-male') ? 'male' : 'female';
 }
@@ -31,7 +31,7 @@ export function lipsyncOf(presentation: Presentation): Lipsync {
   return presentation === 'avatar-female-premium' ? 'words' : 'audio';
 }
 
-/** The presentation that matches the agent's default voice (`DEFAULT_VOICE`), with an avatar. */
+/** The presentation that matches the default voice (`DEFAULT_VOICE`), with an avatar. */
 export function presentationForVoice(voice: Voice): Presentation {
   return voice === 'off' ? 'off' : voice === 'female' ? 'avatar-female-premium' : 'avatar-male';
 }

@@ -5,7 +5,20 @@
  * without a pause, the end of the previous segment. Words become Oculus visemes with overlapping attack/release
  * envelopes, so the mouth moves through the sounds instead of flapping.
  */
-import type { WordSegment, WordTiming } from './protocol';
+/** A spoken word; times in ms from the start of its segment's audio. */
+export interface WordTiming {
+  w: string;
+  s: number;
+  e: number;
+}
+
+/** Word timings of one TTS segment, possibly added in pieces; the last has `final` and the audio length. */
+export interface WordSegment {
+  id: string;
+  words: WordTiming[];
+  final: boolean;
+  durationMs?: number;
+}
 
 export const VISEMES = ['PP', 'FF', 'TH', 'DD', 'kk', 'CH', 'SS', 'nn', 'RR', 'aa', 'E', 'I', 'O', 'U'] as const;
 export type Viseme = (typeof VISEMES)[number];

@@ -10,12 +10,9 @@
 import { initializeLogger, voice } from '@livekit/agents';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { type Language, loadConfig } from '../../src/config.ts';
-import { languageProfiles } from '../../src/language.ts';
 import { createLLM } from '../../src/main.ts';
 import { type Mood, extractMood } from '../../src/mood.ts';
 import { RecordingPublisher, TOPICS } from '../../src/publisher.ts';
-import { SpeechFilter } from '../../src/speechFilter.ts';
-import { filterText } from '../../src/textStream.ts';
 import { WikiAgent } from '../../src/wikiAgent.ts';
 import { Wiki } from '../../src/wiki/wiki.ts';
 import { SAMPLE_WIKI } from '../helpers.ts';
@@ -45,7 +42,7 @@ afterEach(async () => {
 
 async function ask(question: string, language: Language = 'en') {
   const publisher = new RecordingPublisher();
-  const agent = new WikiAgent({ wiki, cfg, publisher, profiles: languageProfiles(cfg), language });
+  const agent = new WikiAgent({ wiki, cfg, publisher, language });
   session = new voice.AgentSession({ llm: model });
   await session.start({ agent });
   const result = await session.run({ userInput: question }).wait();
@@ -91,8 +88,8 @@ describe.skipIf(!reachable)(`voice wiki evals (${cfg.LLM_MODEL})`, { timeout: 18
     const answers = publisher.events.filter((e) => e.topic === TOPICS.answer);
     expect(answers.length).toBeGreaterThan(0);
     expect(JSON.stringify(answers[0]!.payload)).toMatch(/helm rollback/);
-    // The transcript may show inline code; what matters is what reaches TTS.
-    const heard = filterText(spoken, new SpeechFilter());
+    // The transcript may show inline code; the prose around it must not spell out the command.
+    const heard = spoken.replace(/`[^`]*`/g, '');
     expect(heard).not.toMatch(/```|<release>|helm rollback/);
   });
 

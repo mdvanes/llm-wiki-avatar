@@ -10,7 +10,7 @@ const ROOT = basename(process.cwd()) === 'frontend' ? resolve(process.cwd(), '..
 
 let loaded = false;
 
-/** The presentation until the user picks one: the one that matches the agent's DEFAULT_VOICE, with an avatar. */
+/** The presentation until the user picks one: the one that matches DEFAULT_VOICE, with an avatar. */
 export function defaultPresentation(env: Record<string, string | undefined> = process.env): Presentation {
   const voice = env.DEFAULT_VOICE?.toLowerCase();
   return isVoice(voice) ? presentationForVoice(voice) : DEFAULT_PRESENTATION;

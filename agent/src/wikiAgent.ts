@@ -1,13 +1,11 @@
-import { type FlushSentinel, llm, log, voice } from '@livekit/agents';
+import { type FlushSentinel, llm, voice } from '@livekit/agents';
 import type { ReadableStream } from 'node:stream/web';
-import type { Config, Language, Lipsync, Voice } from './config.ts';
+import type { Config, Language } from './config.ts';
 import { type HistoryTurn, withRestoredHistory } from './history.ts';
-import type { LanguageProfile } from './language.ts';
+import { LANGUAGE_PROFILES, type LanguageProfile } from './language.ts';
 import { MoodFilter } from './mood.ts';
 import { buildInstructions, buildWikiContext, wikiOverview } from './prompts.ts';
 import type { Publisher } from './publisher.ts';
-import { ReplyCapture, captureLlmStream } from './replyCapture.ts';
-import type { SpeachesTTS } from './speachesTts.ts';
 import { type StreamingTextFilter, filterTextStream } from './textStream.ts';
 import { SourceTracker, createWikiTools } from './tools.ts';
 import { parseWikilinks } from './wiki/store.ts';
@@ -22,21 +20,7 @@ export interface WikiAgentOptions {
   wiki: Wiki;
   cfg: AgentConfig;
   publisher: Publisher;
-  profiles: Record<Language, LanguageProfile>;
   language: Language;
-  /** The session's TTS; switched in place when the language changes. Absent in text-only tests. */
-  tts?: SpeachesTTS;
-  /** Initial voice; `off` makes replies text only. Defaults to `female`. */
-  voice?: Voice;
-  /** The session's audio output; turned off for the `off` voice. */
-  audioOutput?: AudioOutputSwitch;
-  /** `words`: use the voice with word timings where available (premium avatar). Defaults to `audio`. */
-  lipsync?: Lipsync;
-}
-
-/** The part of the session output that turns speech on and off (`session.output`). */
-export interface AudioOutputSwitch {
-  setAudioEnabled(enabled: boolean): void;
 }
 
 /** Inline code spans or fenced blocks, as the model writes identifiers and commands. */
@@ -64,15 +48,12 @@ class TextCapture implements StreamingTextFilter {
   }
 }
 
+/** Answers questions about the wiki in writing; the browser speaks the replies. */
 export class WikiAgent extends voice.Agent {
   readonly #opts: WikiAgentOptions;
   readonly #sources: SourceTracker;
   #language: Language;
-  #voice: Voice;
-  #lipsync: Lipsync;
   #lastUserMessageId: string | undefined;
-  /** Text of the reply currently being generated or spoken. */
-  #reply: ReplyCapture | undefined;
 
   constructor(opts: WikiAgentOptions) {
     const sources = new SourceTracker(opts.publisher);
@@ -83,14 +64,11 @@ export class WikiAgent extends voice.Agent {
     this.#opts = opts;
     this.#sources = sources;
     this.#language = opts.language;
-    this.#voice = opts.voice ?? 'female';
-    this.#lipsync = opts.lipsync ?? 'audio';
-    this.#applySpeechSettings();
   }
 
-  static instructionsFor(opts: Pick<WikiAgentOptions, 'wiki' | 'cfg' | 'profiles'>, language: Language): string {
+  static instructionsFor(opts: Pick<WikiAgentOptions, 'wiki' | 'cfg'>, language: Language): string {
     return buildInstructions({
-      language: opts.profiles[language],
+      language: LANGUAGE_PROFILES[language],
       overview: wikiOverview(opts.wiki.store, opts.cfg.WIKI_INDEX_MAX_CHARS),
     });
   }
@@ -99,93 +77,20 @@ export class WikiAgent extends voice.Agent {
     return this.#language;
   }
 
-  get voice(): Voice {
-    return this.#voice;
-  }
-
-  get lipsync(): Lipsync {
-    return this.#lipsync;
-  }
-
   get profile(): LanguageProfile {
-    return this.#opts.profiles[this.#language];
+    return LANGUAGE_PROFILES[this.#language];
   }
 
-  /** Switches TTS voice and reply language; optionally confirms out loud. */
+  /** Switches the reply language; optionally confirms it. */
   async setLanguage(language: Language, { announce = true } = {}): Promise<void> {
     if (language === this.#language) return;
     this.#language = language;
-    this.#applySpeechSettings();
     await this.updateInstructions(WikiAgent.instructionsFor(this.#opts, language));
     this.#opts.publisher.language(language);
     if (announce) {
       this.session.interrupt();
-      this.say(`[mood:happy] ${this.profile.switched}`);
+      this.session.say(`[mood:happy] ${this.profile.switched}`);
     }
-  }
-
-  /**
-   * Switches the voice gender, or turns speech off (`off`: replies are text only; push-to-talk keeps working).
-   * Takes effect from the next reply; the caller stops a reply that is being spoken.
-   */
-  setVoice(voice: Voice): void {
-    if (voice === this.#voice) return;
-    this.#voice = voice;
-    this.#applySpeechSettings();
-  }
-
-  /**
-   * `words` asks for the voice with word timings (English female only), whose timings drive the premium avatar's
-   * lip-sync; elsewhere the regular voice is used. Takes effect from the next sentence.
-   */
-  setLipsync(lipsync: Lipsync): void {
-    if (lipsync === this.#lipsync) return;
-    this.#lipsync = lipsync;
-    this.#applySpeechSettings();
-  }
-
-  /** Speaks a fixed text; use instead of `session.say` so the text can be shown in full when stopped. */
-  say(text: string): voice.SpeechHandle {
-    this.#reply = ReplyCapture.of(text);
-    return this.session.say(text);
-  }
-
-  /**
-   * Stops the voice right away (the button in the UI), but keeps generating the reply and streams
-   * all of its text to the UI, where it replaces the transcript message `target`.
-   */
-  stopSpeaking(target: string): void {
-    const reply = this.#reply;
-    reply?.keep();
-    const before = new Set(this.chatCtx.items.map((item) => item.id));
-    this.session.interrupt();
-    if (!reply) return;
-
-    const writer = this.#opts.publisher.fullReply(target);
-    reply.follow(
-      (text) => writer.write(text),
-      () => writer.close(),
-    );
-
-    // The chat history gets the spoken part only; give the model the whole reply that is on screen.
-    const session = this.session;
-    const onItem = (ev: voice.ConversationItemAddedEvent) => {
-      const item = ev.item;
-      if (item.type !== 'message' || item.role !== 'assistant' || before.has(item.id)) return;
-      session.off(voice.AgentSessionEventTypes.ConversationItemAdded, onItem);
-      clearTimeout(timer);
-      if (item.interrupted) void reply.complete().then((text) => this.#replaceMessageText(item.id, text));
-    };
-    const timer = setTimeout(() => session.off(voice.AgentSessionEventTypes.ConversationItemAdded, onItem), 10_000);
-    session.on(voice.AgentSessionEventTypes.ConversationItemAdded, onItem);
-  }
-
-  async #replaceMessageText(id: string, text: string): Promise<void> {
-    const ctx = this.chatCtx.copy();
-    const item = ctx.getById(id);
-    if (item?.type !== 'message' || !text.trim()) return;
-    item.content = [text];
-    await this.updateChatCtx(ctx).catch((err: unknown) => log().warn({ err }, 'could not update the stopped reply'));
   }
 
   /** Continues an earlier conversation: its turns become part of this session's chat history. */
@@ -199,15 +104,6 @@ export class WikiAgent extends voice.Agent {
     await this.updateInstructions(WikiAgent.instructionsFor(this.#opts, this.#language));
   }
 
-  #applySpeechSettings(): void {
-    const profile = this.#opts.profiles[this.#language];
-    this.#opts.audioOutput?.setAudioEnabled(this.#voice !== 'off');
-    // Keep the TTS on a real voice even when off, so turning speech back on needs no extra step.
-    const gender = this.#voice === 'off' ? 'female' : this.#voice;
-    const wordTimed = this.#lipsync === 'words' && gender === 'female' ? profile.wordTimedVoice : undefined;
-    this.#opts.tts?.setVoice(wordTimed ?? profile.voices[gender]);
-  }
-
   /**
    * Adds the best matching wiki excerpts right before the latest user message. Done here rather
    * than in onUserTurnCompleted so it also applies to typed input, tool follow-ups and tests; the
@@ -218,10 +114,7 @@ export class WikiAgent extends voice.Agent {
     toolCtx: llm.ToolContext,
     modelSettings: voice.ModelSettings,
   ): Promise<ReadableStream<llm.ChatChunk | string | FlushSentinel> | null> {
-    const stream = await voice.Agent.default.llmNode(this, this.withWikiContext(chatCtx), toolCtx, modelSettings);
-    if (!stream) return stream;
-    this.#reply = new ReplyCapture();
-    return captureLlmStream(stream, this.#reply);
+    return voice.Agent.default.llmNode(this, this.withWikiContext(chatCtx), toolCtx, modelSettings);
   }
 
   withWikiContext(chatCtx: llm.ChatContext): llm.ChatContext {
@@ -266,8 +159,8 @@ export class WikiAgent extends voice.Agent {
     const sources = this.#sources;
     const store = this.#opts.wiki.store;
     const withoutMood = filterTextStream(text, new MoodFilter((mood) => publisher.mood(mood)));
-    // Small models sometimes put code in the reply instead of calling showOnScreen. The speech
-    // filter keeps it out of the audio; this puts the reply on screen so the code isn't lost.
+    // Small models sometimes put code in the reply instead of calling showOnScreen. The browser does not speak
+    // it; this puts the reply on screen so the code isn't lost.
     const filtered = filterTextStream(
       withoutMood,
       new TextCapture((reply) => {

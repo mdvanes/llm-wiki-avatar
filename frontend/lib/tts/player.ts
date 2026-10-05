@@ -1,5 +1,4 @@
-import type { WordTiming } from '@/lib/protocol';
-import type { WordListener, WordSource } from '@/lib/wordLipsync';
+import type { WordListener, WordSource, WordTiming } from '@/lib/wordLipsync';
 import type { Speech, TtsClient } from './client';
 import { SentenceSplitter } from './sentences';
 import type { VoiceSpec } from './voices';

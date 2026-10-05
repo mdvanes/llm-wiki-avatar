@@ -1,12 +1,12 @@
 'use client';
 
-import { RoomAudioRenderer, SessionProvider, StartAudio, useSession } from '@livekit/components-react';
+import { SessionProvider, useSession } from '@livekit/components-react';
 import { TokenSource } from 'livekit-client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type Conversation, clearHistory, deleteConversation, loadHistory, saveConversation } from '@/lib/history';
 import { type Language, STRINGS, loadLanguage, saveLanguage } from '@/lib/language';
-import { type Presentation, lipsyncOf, loadPresentation, savePresentation, voiceOf } from '@/lib/presentation';
-import { LANGUAGE_ATTRIBUTE, LIPSYNC_ATTRIBUTE, VOICE_ATTRIBUTE } from '@/lib/protocol';
+import { type Presentation, loadPresentation, savePresentation } from '@/lib/presentation';
+import { LANGUAGE_ATTRIBUTE } from '@/lib/protocol';
 import { ConversationViewer } from './ConversationViewer';
 import { HistorySidebar } from './HistorySidebar';
 import { SessionView } from './SessionView';
@@ -54,19 +54,8 @@ export function App({ defaultPresentation }: { defaultPresentation: Presentation
     savePresentation(next);
   }, []);
 
-  // The token route puts these on the participant, so the agent starts in the right language and voice.
-  const voice = voiceOf(presentation);
-  const lipsync = lipsyncOf(presentation);
-  const options = useMemo(
-    () => ({
-      participantAttributes: {
-        [LANGUAGE_ATTRIBUTE]: language,
-        [VOICE_ATTRIBUTE]: voice,
-        [LIPSYNC_ATTRIBUTE]: lipsync,
-      },
-    }),
-    [language, voice, lipsync],
-  );
+  // The token route puts this on the participant, so the agent starts in the right language.
+  const options = useMemo(() => ({ participantAttributes: { [LANGUAGE_ATTRIBUTE]: language } }), [language]);
   const session = useSession(tokenSource, options);
   const strings = STRINGS[language];
 
@@ -162,11 +151,6 @@ export function App({ defaultPresentation }: { defaultPresentation: Presentation
             }
           />
         )}
-        <RoomAudioRenderer />
-        <StartAudio
-          label="🔊 Click to enable audio"
-          className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 rounded-full bg-accent px-4 py-2 text-sm font-semibold text-bg"
-        />
       </div>
     </SessionProvider>
   );

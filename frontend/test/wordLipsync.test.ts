@@ -1,10 +1,18 @@
-import { LipsyncEn } from '@met4citizen/talkinghead/modules/lipsync-en.mjs';
 import { describe, expect, it } from 'vitest';
-import type { WordSegment } from '@/lib/protocol';
-import { REST, VISEME_KEYS, type VisemeShape, WordLipSync, shapeAt, wordEvents } from '@/lib/wordLipsync';
+import { ipaToVisemes } from '@/lib/tts/visemes';
+import {
+  REST,
+  VISEME_KEYS,
+  type VisemeShape,
+  type WordSegment,
+  WordLipSync,
+  shapeAt,
+  wordEvents,
+} from '@/lib/wordLipsync';
 
-const rules = new LipsyncEn();
-const toVisemes = (w: string) => rules.wordsToVisemes(rules.preProcessText(w));
+// Kokoro's word timings carry phonemes; the tests keep readable words.
+const IPA: Record<string, string> = { Hello: 'həlˈoʊ', pop: 'pˈɑp', there: 'ðˈɛɹ' };
+const toVisemes = (w: string) => ipaToVisemes(IPA[w] ?? w);
 
 const hello: WordSegment = { id: 'a', words: [{ w: 'Hello', s: 50, e: 400 }], final: false };
 const helloEvents = wordEvents(hello.words[0]!, toVisemes);
@@ -23,7 +31,7 @@ function strongest(shape: VisemeShape | null): string | undefined {
 
 describe('wordEvents', () => {
   it('spreads the visemes of a word over its time with overlapping envelopes', () => {
-    expect(helloEvents.map((e) => e.key)).toEqual(['viseme_I', 'viseme_E', 'viseme_nn', 'viseme_O']);
+    expect(helloEvents.map((e) => e.key)).toEqual(['viseme_kk', 'viseme_E', 'viseme_nn', 'viseme_O', 'viseme_U']);
     for (const e of helloEvents) {
       expect(e.start).toBeGreaterThanOrEqual(50 - 60);
       expect(e.end).toBeLessThanOrEqual(400 + 60);
@@ -52,7 +60,7 @@ describe('shapeAt', () => {
       expect(s.jawOpen).toBeLessThanOrEqual(0.2);
       for (const k of VISEME_KEYS) expect(s[k]).toBeLessThanOrEqual(1);
     }
-    expect(strongest(shapeAt(helloEvents, 360))).toBe('viseme_O');
+    expect(strongest(shapeAt(helloEvents, 360))).toBe('viseme_U');
   });
 
   it('changes smoothly', () => {
@@ -75,7 +83,7 @@ describe('WordLipSync', () => {
     const anchor = 1000 - 50 - LAG;
     const shape = w.update(anchor + 360, 0.05, 16);
     expect(strongest(shape)).toBe(strongest(shapeAt(helloEvents, 361)));
-    expect(shape!.viseme_O).toBeCloseTo(shapeAt(helloEvents, 361).viseme_O, 1);
+    expect(shape!.viseme_U).toBeCloseTo(shapeAt(helloEvents, 361).viseme_U, 1);
   });
 
   it('anchors words that arrive just after their audio started', () => {
@@ -83,7 +91,7 @@ describe('WordLipSync', () => {
     w.update(1000, 0.05, 16);
     w.add(hello, 1100);
     const anchor = 1000 - 50 - LAG;
-    expect(w.update(anchor + 360, 0.05, 16)!.viseme_O).toBeCloseTo(shapeAt(helloEvents, 361).viseme_O, 1);
+    expect(w.update(anchor + 360, 0.05, 16)!.viseme_U).toBeCloseTo(shapeAt(helloEvents, 361).viseme_U, 1);
   });
 
   it('chains segments when the audio runs on without a pause', () => {
@@ -96,7 +104,7 @@ describe('WordLipSync', () => {
     for (let t = 1016; t < anchor + 500 + 90; t += 16) w.update(t, 0.05, 16);
     // The second segment starts where the first ended.
     const shape = w.update(anchor + 500 + 360, 0.05, 16);
-    expect(shape!.viseme_O).toBeCloseTo(shapeAt(helloEvents, 361).viseme_O, 1);
+    expect(shape!.viseme_U).toBeCloseTo(shapeAt(helloEvents, 361).viseme_U, 1);
     expect(w.pending).toBe(1);
   });
 
@@ -114,7 +122,7 @@ describe('WordLipSync', () => {
     }
     w.update(2000, 0.05, 16);
     const shape = w.update(2000 - 50 - LAG + 360, 0.05, 16);
-    expect(shape!.viseme_O).toBeCloseTo(shapeAt(helloEvents, 361).viseme_O, 1);
+    expect(shape!.viseme_U).toBeCloseTo(shapeAt(helloEvents, 361).viseme_U, 1);
   });
 
   it('skips segments without words and hands back to loudness lip-sync when idle', () => {

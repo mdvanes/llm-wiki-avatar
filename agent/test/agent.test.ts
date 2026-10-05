@@ -1,8 +1,8 @@
 import { initializeLogger, type llm, voice } from '@livekit/agents';
 import { resolve } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { REPO_ROOT, isVoice, loadConfig } from '../src/config.ts';
-import { languageProfiles } from '../src/language.ts';
+import { REPO_ROOT, loadConfig } from '../src/config.ts';
+import { LANGUAGE_PROFILES } from '../src/language.ts';
 import { buildInstructions, buildWikiContext, wikiOverview } from '../src/prompts.ts';
 import { RecordingPublisher, TOPICS } from '../src/publisher.ts';
 import { SourceTracker, listRecentChanges, readPage, searchWiki, showOnScreen, truncate } from '../src/tools.ts';
@@ -11,7 +11,8 @@ import { Wiki } from '../src/wiki/wiki.ts';
 
 initializeLogger({ pretty: false, level: 'warn' });
 
-const cfg = loadConfig();
+// Defaults only, so a WIKI_SOURCES in .env does not replace the sample wiki.
+const cfg = loadConfig({});
 let wiki: Wiki;
 beforeAll(async () => {
   wiki = await Wiki.open(cfg.WIKI_SOURCES);
@@ -22,7 +23,7 @@ function deps() {
   return { wiki, cfg, publisher, sources: new SourceTracker(publisher) };
 }
 
-describe('config and language profiles', () => {
+describe('config', () => {
   it('has sensible defaults and ignores empty values', () => {
     const c = loadConfig({ LLM_MODEL: '', DEFAULT_LANGUAGE: 'nl' });
     expect(c.LLM_MODEL).toBe('qwen3:4b-instruct');
@@ -45,47 +46,12 @@ describe('config and language profiles', () => {
   it('rejects unsupported languages', () => {
     expect(() => loadConfig({ DEFAULT_LANGUAGE: 'fr' })).toThrow();
   });
-
-  it('routes Dutch to the Piper voice and English to Kokoro', () => {
-    const profiles = languageProfiles(loadConfig({ TTS_NL_BASE_URL: 'http://piper:8000/v1' }));
-    expect(profiles.en.voices.female).toMatchObject({ model: expect.stringContaining('Kokoro'), voice: 'af_heart' });
-    expect(profiles.nl.voices.female).toEqual({
-      baseURL: 'http://piper:8000/v1',
-      model: 'speaches-ai/piper-nl_BE-nathalie-medium',
-      voice: 'nathalie',
-    });
-  });
-
-  it('has male voices per language, with their own server override', () => {
-    const profiles = languageProfiles(
-      loadConfig({ SPEACHES_URL: 'http://speaches/v1', TTS_EN_MALE_BASE_URL: 'http://kokoro/v1' }),
-    );
-    expect(profiles.en.voices.male).toEqual({
-      baseURL: 'http://kokoro/v1',
-      model: 'speaches-ai/Kokoro-82M-v1.0-ONNX',
-      voice: 'am_michael',
-    });
-    expect(profiles.nl.voices.male).toEqual({
-      baseURL: 'http://speaches/v1',
-      model: 'speaches-ai/piper-nl_BE-rdh-medium',
-      voice: 'rdh',
-    });
-  });
-
-  it('parses the default voice', () => {
-    expect(loadConfig({}).DEFAULT_VOICE).toBe('female');
-    expect(loadConfig({ DEFAULT_VOICE: 'off' }).DEFAULT_VOICE).toBe('off');
-    expect(() => loadConfig({ DEFAULT_VOICE: 'robot' })).toThrow();
-    expect(isVoice('male')).toBe(true);
-    expect(isVoice('Male')).toBe(false);
-    expect(isVoice(undefined)).toBe(false);
-  });
 });
 
 describe('prompts', () => {
   it('injects the wiki index and the reply language', () => {
     const text = buildInstructions({
-      language: languageProfiles(cfg).nl,
+      language: LANGUAGE_PROFILES.nl,
       overview: wikiOverview(wiki.store, 4000),
     });
     expect(text).toContain('Always reply in Dutch');
@@ -186,7 +152,7 @@ describe('WikiAgent in a session', () => {
   async function start(responses: voice.testing.FakeLLMResponse[]) {
     const fake = new RecordingLLM(responses);
     const publisher = new RecordingPublisher();
-    const agent = new WikiAgent({ wiki, cfg, publisher, profiles: languageProfiles(cfg), language: 'en' });
+    const agent = new WikiAgent({ wiki, cfg, publisher, language: 'en' });
     const session = new voice.AgentSession({ llm: fake });
     await session.start({ agent });
     return { fake, publisher, agent, session };
@@ -269,10 +235,24 @@ describe('containsCode', () => {
   });
 });
 
+describe('WikiAgent.setLanguage', () => {
+  it('switches the instructions and notifies the UI', async () => {
+    const publisher = new RecordingPublisher();
+    const agent = new WikiAgent({ wiki, cfg, publisher, language: 'en' });
+    expect(agent.instructions).toContain('Always reply in English');
+    await agent.setLanguage('nl', { announce: false });
+    expect(agent.language).toBe('nl');
+    expect(agent.instructions).toContain('Always reply in Dutch');
+    expect(publisher.events).toEqual([{ topic: TOPICS.language, payload: 'nl' }]);
+    await agent.setLanguage('nl', { announce: false });
+    expect(publisher.events).toHaveLength(1);
+  });
+});
+
 describe('llm tool definitions', () => {
   it('exposes the four wiki tools', async () => {
     const publisher = new RecordingPublisher();
-    const agent = new WikiAgent({ wiki, cfg, publisher, profiles: languageProfiles(cfg), language: 'en' });
+    const agent = new WikiAgent({ wiki, cfg, publisher, language: 'en' });
     expect(Object.keys(agent.toolCtx.functionTools ?? {}).sort()).toEqual(
       ['listRecentChanges', 'readPage', 'searchWiki', 'showOnScreen'],
     );

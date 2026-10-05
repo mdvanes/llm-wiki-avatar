@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { kokoroPhonemes, kokoroWordTimings, normalizeEnglish } from '@/lib/tts/kokoro';
 import { MAX_SENTENCE, SentenceSplitter, limitLength, splitSentences } from '@/lib/tts/sentences';
-import { speakable, speechSegments } from '@/lib/tts/speechText';
+import { speakable, speakableCode, speechSegments } from '@/lib/tts/speechText';
 import { ipaToVisemes } from '@/lib/tts/visemes';
 import { KOKORO_REPO, TTS_VOICES, filesToRemove, findVoice, voiceFiles, voiceFor, voiceSpec } from '@/lib/tts/voices';
 
@@ -77,6 +77,18 @@ describe('sentences', () => {
 });
 
 describe('speech text', () => {
+  it.each([
+    ['getUserByID', 'get User By ID'],
+    ['InvoiceScheduler', 'Invoice Scheduler'],
+    ['mw.go', 'mw dot go'],
+    ['k8s-staging-eu2', 'k8s staging eu2'],
+    ['services/auth', 'services auth'],
+    ['foo(bar)', ''],
+    ['x'.repeat(61), ''],
+  ])('speakableCode(%s) = %s', (code, spoken) => {
+    expect(speakableCode(code)).toBe(spoken);
+  });
+
   it('makes markdown speakable', () => {
     expect(speakable('**Note:** see [[Billing Service|billing]] and `getUserByID`! 🎉')).toBe(
       'Note: see billing and get User By ID!',

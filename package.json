@@ -15,7 +15,6 @@
     "dev:frontend": "npm run dev -w frontend",
     "test": "npm test -w agent && npm test -w frontend",
     "eval": "npm run eval -w agent",
-    "smoke": "npm run smoke -w agent",
     "typecheck": "npm run typecheck -w agent && npm run typecheck -w frontend",
     "build": "npm run build -w frontend"
   }

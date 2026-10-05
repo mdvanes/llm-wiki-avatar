@@ -11,7 +11,6 @@ COPY frontend/package.json frontend/
 RUN npm ci -w agent --omit=dev --no-audit --no-fund && npm cache clean --force
 
 COPY agent/src agent/src
-COPY agent/scripts agent/scripts
 COPY agent/tsconfig.json agent/
 COPY sample-wiki sample-wiki
 

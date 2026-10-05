@@ -13,15 +13,6 @@ dotenv.config({
 export const SUPPORTED_LANGUAGES = ['en', 'nl'] as const;
 export type Language = (typeof SUPPORTED_LANGUAGES)[number];
 
-/** `off`: replies are text only (push-to-talk keeps working). Otherwise the gender of the TTS voice. */
-export const VOICES = ['off', 'female', 'male'] as const;
-export type Voice = (typeof VOICES)[number];
-export type VoiceGender = Exclude<Voice, 'off'>;
-
-/** How the avatar's mouth follows the voice: `audio` (loudness) or `words` (word timings from the TTS, premium). */
-export const LIPSYNCS = ['audio', 'words'] as const;
-export type Lipsync = (typeof LIPSYNCS)[number];
-
 const bool = z
   .enum(['true', 'false', '1', '0', 'yes', 'no'])
   .transform((v) => v === 'true' || v === '1' || v === 'yes');
@@ -72,34 +63,7 @@ const schema = z.object({
   LLM_TIMEOUT_S: z.coerce.number().positive().default(90),
   LLM_REASONING_EFFORT: z.enum(['none', 'minimal', 'low', 'medium', 'high']).optional(),
 
-  SPEACHES_URL: z.string().default('http://localhost:8000/v1'),
-  SPEACHES_API_KEY: z.string().default('speaches'),
-  /** Request timeout for Speaches TTS calls. */
-  SPEECH_TIMEOUT_S: z.coerce.number().positive().default(30),
-
-  TTS_EN_BASE_URL: z.string().optional(),
-  TTS_EN_MODEL: z.string().default('speaches-ai/Kokoro-82M-v1.0-ONNX'),
-  TTS_EN_VOICE: z.string().default('af_heart'),
-  TTS_NL_BASE_URL: z.string().optional(),
-  TTS_NL_MODEL: z.string().default('speaches-ai/piper-nl_BE-nathalie-medium'),
-  TTS_NL_VOICE: z.string().default('nathalie'),
-  // The TTS_EN_* / TTS_NL_* settings above are the female voices; these are the male ones.
-  TTS_EN_MALE_BASE_URL: z.string().optional(),
-  TTS_EN_MALE_MODEL: z.string().default('speaches-ai/Kokoro-82M-v1.0-ONNX'),
-  TTS_EN_MALE_VOICE: z.string().default('am_michael'),
-  TTS_NL_MALE_BASE_URL: z.string().optional(),
-  TTS_NL_MALE_MODEL: z.string().default('speaches-ai/piper-nl_BE-rdh-medium'),
-  TTS_NL_MALE_VOICE: z.string().default('rdh'),
-  TTS_SPEED: z.coerce.number().min(0.5).max(2).default(1),
-  /**
-   * Kokoro-FastAPI (e.g. `http://localhost:8880`), for the premium avatar: English female voice `af_heart` with word
-   * timings for lip-sync. Without it the premium avatar uses the regular voice and loudness lip-sync.
-   */
-  KOKORO_URL: z.string().optional(),
-
   DEFAULT_LANGUAGE: z.enum(SUPPORTED_LANGUAGES).default('en'),
-  /** Used when the browser does not send a voice. */
-  DEFAULT_VOICE: z.enum(VOICES).default('female'),
 });
 
 export type Config = Omit<z.infer<typeof schema>, 'WIKI_SOURCES'> & { WIKI_SOURCES: WikiSource[] };
@@ -122,14 +86,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       path: resolve(REPO_ROOT, source.path),
     })),
   };
-}
-
-export function isVoice(value: unknown): value is Voice {
-  return typeof value === 'string' && (VOICES as readonly string[]).includes(value);
-}
-
-export function isLipsync(value: unknown): value is Lipsync {
-  return typeof value === 'string' && (LIPSYNCS as readonly string[]).includes(value);
 }
 
 export function isLanguage(value: unknown): value is Language {

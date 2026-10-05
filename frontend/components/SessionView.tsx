@@ -23,7 +23,6 @@ import {
   loadInstantTranscript,
   voiceOf,
 } from '@/lib/presentation';
-import { withFullReplies } from '@/lib/reply';
 import { RPC_INTERRUPT, RPC_RESTORE_HISTORY, RPC_SET_LANGUAGE } from '@/lib/protocol';
 import {
   type Phase,
@@ -132,15 +131,15 @@ export function SessionView({
   const agent = useAgent();
   const { localParticipant } = useLocalParticipant();
   const { messages, send } = useSessionMessages();
-  const { mood, answers, sources, agentLanguage, replies } = useWikiStreams();
+  const { mood, answers, sources, agentLanguage } = useWikiStreams();
   const [page, setPage] = useState<PageRef | null>(null);
   const [draft, setDraft] = useState('');
   const [switching, setSwitching] = useState(false);
 
   const current = useMemo(() => messages.map(toTranscriptEntry), [messages]);
   const entries = useMemo(
-    () => withFullReplies(mergeEntries(previous?.messages ?? [], current), replies),
-    [previous, current, replies],
+    () => mergeEntries(previous?.messages ?? [], current),
+    [previous, current],
   );
   const allAnswers = useMemo(() => mergeEntries(previous?.answers ?? [], answers), [previous, answers]);
   useConversationRecorder({ id: conversationId, previous, messages: entries, answers: allAnswers, language, onSave });

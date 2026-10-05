@@ -1,41 +1,15 @@
 import { type JobContext, ServerOptions, cli, defineAgent, log, voice } from '@livekit/agents';
 import * as openai from '@livekit/agents-plugin-openai';
-import type { ReadableStream } from 'node:stream/web';
 import { fileURLToPath } from 'node:url';
-import { type Config, type Language, type Voice, isLanguage, isLipsync, isVoice, loadConfig } from './config.ts';
+import { type Config, type Language, isLanguage, loadConfig } from './config.ts';
 import { parseHistoryPayload } from './history.ts';
-import { languageProfiles } from './language.ts';
-import { MoodFilter } from './mood.ts';
-import {
-  RPC_INTERRUPT,
-  RPC_RESTORE_HISTORY,
-  RPC_SET_LANGUAGE,
-  RPC_SET_LIPSYNC,
-  RPC_SET_VOICE,
-  RPC_STOP_SPEAKING,
-  RoomPublisher,
-} from './publisher.ts';
-import { SpeechFilter } from './speechFilter.ts';
-import { filterTextStream } from './textStream.ts';
+import { LANGUAGE_PROFILES } from './language.ts';
+import { RPC_INTERRUPT, RPC_RESTORE_HISTORY, RPC_SET_LANGUAGE, RoomPublisher } from './publisher.ts';
 import { WikiAgent } from './wikiAgent.ts';
 import { Wiki } from './wiki/wiki.ts';
 
 /** Participant attribute the frontend sets (via its token) to choose the language. */
 export const LANGUAGE_ATTRIBUTE = 'language';
-/** Participant attribute for the voice: `off` (text replies only), `female` or `male`. */
-export const VOICE_ATTRIBUTE = 'voice';
-/** Participant attribute for the lip-sync: `audio` or `words` (premium avatar). */
-export const LIPSYNC_ATTRIBUTE = 'lipsync';
-
-/** TTS input transforms: drop the mood tag and code, then the built-in markdown/emoji cleanup. */
-export function ttsTextTransforms(): voice.AgentSessionOptions['ttsTextTransforms'] {
-  return [
-    (text: ReadableStream<string>) => filterTextStream(text, new MoodFilter()) as ReadableStream<string>,
-    (text: ReadableStream<string>) => filterTextStream(text, new SpeechFilter()) as ReadableStream<string>,
-    'filter_markdown',
-    'filter_emoji',
-  ];
-}
 
 export function createLLM(cfg: Config): openai.LLM {
   return new openai.LLM({
@@ -51,7 +25,6 @@ export default defineAgent({
   entry: async (ctx: JobContext) => {
     const cfg = loadConfig();
     const logger = log().child({ component: 'llm-wiki-avatar' });
-    const profiles = languageProfiles(cfg);
 
     const wiki = await Wiki.open(cfg.WIKI_SOURCES, {
       poll: cfg.WIKI_WATCH_POLL,
@@ -78,14 +51,7 @@ export default defineAgent({
       },
     });
 
-    const agent = new WikiAgent({
-      wiki,
-      cfg,
-      publisher,
-      profiles,
-      language: cfg.DEFAULT_LANGUAGE,
-      voice: cfg.DEFAULT_VOICE,
-    });
+    const agent = new WikiAgent({ wiki, cfg, publisher, language: cfg.DEFAULT_LANGUAGE });
     wiki.watch();
 
     await session.start({
@@ -111,46 +77,19 @@ export default defineAgent({
       return String(turns.length);
     });
 
-    ctx.room.localParticipant?.registerRpcMethod(RPC_STOP_SPEAKING, async ({ payload }) => {
-      agent.stopSpeaking(payload.trim());
-      logger.info('speech stopped by the user');
-      return 'ok';
-    });
-
-    ctx.room.localParticipant?.registerRpcMethod(RPC_SET_VOICE, async ({ payload }) => {
-      const requested = payload.trim().toLowerCase();
-      if (!isVoice(requested)) throw new Error(`unsupported voice "${payload}"`);
-      agent.setVoice(requested);
-      logger.info({ voice: requested }, 'voice changed');
-      return requested;
-    });
-
-    ctx.room.localParticipant?.registerRpcMethod(RPC_SET_LIPSYNC, async ({ payload }) => {
-      const requested = payload.trim().toLowerCase();
-      if (!isLipsync(requested)) throw new Error(`unsupported lipsync "${payload}"`);
-      agent.setLipsync(requested);
-      logger.info({ lipsync: requested }, 'lipsync changed');
-      return requested;
-    });
-
     ctx.room.localParticipant?.registerRpcMethod(RPC_INTERRUPT, async () => {
       session.interrupt();
       return 'ok';
     });
 
     const participant = await ctx.waitForParticipant();
-    const requestedVoice = participant.attributes[VOICE_ATTRIBUTE]?.toLowerCase();
-    const initialVoice: Voice = isVoice(requestedVoice) ? requestedVoice : cfg.DEFAULT_VOICE;
-    agent.setVoice(initialVoice);
-    const requestedLipsync = participant.attributes[LIPSYNC_ATTRIBUTE]?.toLowerCase();
-    if (isLipsync(requestedLipsync)) agent.setLipsync(requestedLipsync);
     const requested = participant.attributes[LANGUAGE_ATTRIBUTE]?.toLowerCase();
     const language: Language = isLanguage(requested) ? requested : cfg.DEFAULT_LANGUAGE;
     await agent.setLanguage(language, { announce: false });
     publisher.language(language);
-    logger.info({ language, voice: initialVoice, participant: participant.identity }, 'session started');
+    logger.info({ language, participant: participant.identity }, 'session started');
 
-    agent.say(`[mood:happy] ${profiles[language].greeting}`);
+    session.say(`[mood:happy] ${LANGUAGE_PROFILES[language].greeting}`);
   },
 });
 

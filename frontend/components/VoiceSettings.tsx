@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Language, Strings } from '@/lib/language';
-import type { WordTiming } from '@/lib/protocol';
+import type { WordTiming } from '@/lib/wordLipsync';
 import { loadInstantTranscript, saveInstantTranscript } from '@/lib/presentation';
 import { cachedFiles, formatBytes, persistStorage, removeFiles } from '@/lib/stt/cache';
 import type { DeviceCaps } from '@/lib/stt/models';
