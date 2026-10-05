@@ -2,8 +2,7 @@
  * Maps the shared face pose and mouth shape onto a VRM avatar: ARKit and Oculus viseme morph targets for the face,
  * eye look-at, and humanoid bone rotations for the head, breathing and arms. No three.js here, so it can be tested.
  */
-import type { FacePose } from '../cartoon/face';
-import { lidClosure } from '../photo/mesh';
+import type { FacePose } from '../face';
 import { VISEMES, type Viseme, type VisemeShape } from '../wordLipsync';
 
 /** Morph target names on the model for each viseme; the rest share the Oculus names. */
@@ -35,6 +34,9 @@ const BROW_UP = 4;
 const BROW_DOWN = 3;
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+
+/** The FacePose `lid` rests at 0.1 with the eyes fully open; this maps it to 0 open .. 1 closed. */
+export const lidClosure = (lid: number) => clamp01((lid - 0.1) / 0.9);
 
 /**
  * Morph weights for one frame. Left and right are the avatar's own sides (ARKit), so the brow on the viewer's left

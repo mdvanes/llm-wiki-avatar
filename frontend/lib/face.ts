@@ -1,8 +1,9 @@
 /**
- * Everything on the cartoon face apart from the mouth: brows, eyelids, gaze, head sway and breathing. Mood tags and
+ * Everything on the avatar's face apart from the mouth: brows, eyelids, gaze, head sway and breathing. Mood tags and
  * the agent's state set targets that the face eases toward, and blinks and small eye movements keep it alive.
+ * Distances are in px of a 2D face about 150 px wide; `lib/vrm/rig.ts` maps them onto the 3D model.
  */
-import type { Mood } from '../protocol';
+import type { Mood } from './protocol';
 
 export interface Brow {
   /** Raise of the end near the nose, in px (positive is up). */

@@ -21,9 +21,6 @@ export function isVoice(value: unknown): value is Voice {
   return typeof value === 'string' && (VOICES as readonly string[]).includes(value);
 }
 
-/** `audio`: the mouth follows the loudness of the voice. `words`: word timings of the voice (premium avatar). */
-export type Lipsync = 'audio' | 'words';
-
 export const MOODS = ['neutral', 'happy', 'sad', 'confused'] as const;
 export type Mood = (typeof MOODS)[number];
 

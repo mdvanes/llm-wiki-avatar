@@ -1,10 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   PRESENTATIONS,
-  avatarKindOf,
   avatarOf,
   isPresentation,
-  lipsyncOf,
   loadPresentation,
   presentationForVoice,
   savePresentation,
@@ -14,13 +12,12 @@ import { defaultPresentation } from '@/lib/server-config';
 
 describe('presentation', () => {
   it('maps each option to a voice and an avatar', () => {
-    expect(PRESENTATIONS.map((p) => [p, voiceOf(p), avatarOf(p), avatarKindOf(p), lipsyncOf(p)])).toEqual([
-      ['off', 'off', null, null, 'audio'],
-      ['voice-female', 'female', null, null, 'audio'],
-      ['voice-male', 'male', null, null, 'audio'],
-      ['avatar-female-premium', 'female', 'female', 'photo', 'words'],
-      ['avatar-female-vrm', 'female', 'female', 'vrm', 'words'],
-      ['avatar-male', 'male', 'male', 'photo', 'audio'],
+    expect(PRESENTATIONS.map((p) => [p, voiceOf(p), avatarOf(p)])).toEqual([
+      ['off', 'off', null],
+      ['voice-female', 'female', null],
+      ['voice-male', 'male', null],
+      ['avatar-female-premium', 'female', 'female'],
+      ['avatar-male', 'male', 'male'],
     ]);
   });
 
@@ -53,8 +50,10 @@ describe('presentation', () => {
       expect(loadPresentation()).toBe('avatar-female-premium');
     });
 
-    it('replaces the removed avatar-female with the premium female avatar', () => {
+    it('replaces the removed female avatars with the premium female avatar', () => {
       stubStorage({ 'llm-wiki-avatar.presentation': 'avatar-female' });
+      expect(loadPresentation('avatar-male')).toBe('avatar-female-premium');
+      stubStorage({ 'llm-wiki-avatar.presentation': 'avatar-female-vrm' });
       expect(loadPresentation('avatar-male')).toBe('avatar-female-premium');
     });
 
@@ -62,8 +61,8 @@ describe('presentation', () => {
       stubStorage();
       savePresentation('voice-female');
       expect(loadPresentation()).toBe('voice-female');
-      savePresentation('avatar-female-vrm');
-      expect(loadPresentation()).toBe('avatar-female-vrm');
+      savePresentation('avatar-male');
+      expect(loadPresentation()).toBe('avatar-male');
     });
   });
 });

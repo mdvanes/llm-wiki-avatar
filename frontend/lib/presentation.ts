@@ -1,22 +1,12 @@
-import type { Lipsync, Voice } from './protocol';
+import type { Voice } from './protocol';
 
 /**
- * How the agent answers: text only, a voice, or a voice with a talking avatar. `avatar-female-premium` and
- * `avatar-female-vrm` lip-sync to Kokoro's word timings (English only; elsewhere they fall back to loudness lip-sync).
- * `avatar-female-vrm` is a 3D VRM model instead of an animated photo.
+ * How the agent answers: text only, a voice, or a voice with a talking 3D avatar (Ember for female, Nova for male).
+ * The avatars lip-sync to Kokoro's word timings (English only; elsewhere they fall back to loudness lip-sync).
  */
-export const PRESENTATIONS = [
-  'off',
-  'voice-female',
-  'voice-male',
-  'avatar-female-premium',
-  'avatar-female-vrm',
-  'avatar-male',
-] as const;
+export const PRESENTATIONS = ['off', 'voice-female', 'voice-male', 'avatar-female-premium', 'avatar-male'] as const;
 export type Presentation = (typeof PRESENTATIONS)[number];
 export type AvatarGender = 'female' | 'male';
-/** `photo`: the animated photo (or the cartoon without WebGL); `vrm`: a 3D VRM model. */
-export type AvatarKind = 'photo' | 'vrm';
 
 export const DEFAULT_PRESENTATION: Presentation = 'avatar-female-premium';
 
@@ -36,17 +26,6 @@ export function avatarOf(presentation: Presentation): AvatarGender | null {
   return presentation.startsWith('avatar-') ? (voiceOf(presentation) as AvatarGender) : null;
 }
 
-/** How the avatar is drawn, or null for no avatar. */
-export function avatarKindOf(presentation: Presentation): AvatarKind | null {
-  if (!presentation.startsWith('avatar-')) return null;
-  return presentation === 'avatar-female-vrm' ? 'vrm' : 'photo';
-}
-
-/** How the avatar's mouth follows the voice. */
-export function lipsyncOf(presentation: Presentation): Lipsync {
-  return presentation === 'avatar-female-premium' || presentation === 'avatar-female-vrm' ? 'words' : 'audio';
-}
-
 /** The presentation that matches the default voice (`DEFAULT_VOICE`), with an avatar. */
 export function presentationForVoice(voice: Voice): Presentation {
   return voice === 'off' ? 'off' : voice === 'female' ? 'avatar-female-premium' : 'avatar-male';
@@ -55,8 +34,8 @@ export function presentationForVoice(voice: Voice): Presentation {
 export function loadPresentation(fallback: Presentation = DEFAULT_PRESENTATION): Presentation {
   if (typeof window === 'undefined') return fallback;
   const stored = window.localStorage.getItem(STORAGE_KEY);
-  // `avatar-female` was removed; it is replaced by the premium female avatar.
-  if (stored === 'avatar-female') return 'avatar-female-premium';
+  // Removed female avatars are replaced by the premium one.
+  if (stored === 'avatar-female' || stored === 'avatar-female-vrm') return 'avatar-female-premium';
   return isPresentation(stored) ? stored : fallback;
 }
 

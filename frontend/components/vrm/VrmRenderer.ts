@@ -5,9 +5,10 @@ import { type VRM, VRMLoaderPlugin, VRMLookAtBoneApplier, VRMUtils } from '@pixi
 import type { AvatarFrame } from '@/hooks/useAvatarDriver';
 import { MORPHS, type RigBone, boneRotations, gaze, morphWeights } from '@/lib/vrm/rig';
 
-/** Head and shoulders: the part of the model to fit in view, in model metres above the floor. */
-const FRAME_BOTTOM = 1.24;
-const FRAME_TOP = 1.8;
+/** Head and shoulders: the part of the model to fit in view, in metres above and below the head bone. */
+const FRAME_ABOVE = 0.24;
+const FRAME_BELOW = 0.32;
+const FRAME_WIDTH = 0.5;
 const FOV = 22;
 
 /** Draws a VRM model with WebGL and poses it per frame from the shared face pose and mouth shape. */
@@ -17,7 +18,9 @@ export class VrmRenderer {
   readonly #camera = new THREE.PerspectiveCamera(FOV, 1, 0.05, 20);
   readonly #environment: THREE.Texture;
   readonly #resize: ResizeObserver;
+  readonly #canvas: HTMLCanvasElement;
   #vrm: VRM | null = null;
+  #headHeight = 1.56;
   #morphs = new Map<string, [THREE.Mesh, number][]>();
   #gazeRange = { x: 90, y: 90 };
   /** VRM 0.x models face -Z in their own space, which mirrors the X and Z rotations of normalized bones. */
@@ -25,6 +28,7 @@ export class VrmRenderer {
   #disposed = false;
 
   constructor(canvas: HTMLCanvasElement) {
+    this.#canvas = canvas;
     this.#renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     this.#renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
     this.#renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -45,9 +49,9 @@ export class VrmRenderer {
     rim.position.set(0, 2, -2);
     this.#scene.add(key, fill, rim, new THREE.HemisphereLight(0xffffff, 0x404040, 0.6));
 
-    this.#resize = new ResizeObserver(() => this.#fit(canvas));
+    this.#resize = new ResizeObserver(() => this.#fit());
     this.#resize.observe(canvas);
-    this.#fit(canvas);
+    this.#fit();
   }
 
   async load(url: string): Promise<void> {
@@ -92,6 +96,10 @@ export class VrmRenderer {
     this.#scene.add(vrm.scene);
     this.#mirror = vrm.meta.metaVersion === '0' ? -1 : 1;
     this.#vrm = vrm;
+    vrm.scene.updateMatrixWorld(true);
+    const head = vrm.humanoid.getRawBoneNode('head');
+    if (head) this.#headHeight = head.getWorldPosition(new THREE.Vector3()).y;
+    this.#fit();
   }
 
   draw({ pose, shape }: AvatarFrame, dtMs: number): void {
@@ -123,18 +131,19 @@ export class VrmRenderer {
     this.#renderer.dispose();
   }
 
-  #fit(canvas: HTMLCanvasElement): void {
-    const width = Math.max(1, canvas.clientWidth);
-    const height = Math.max(1, canvas.clientHeight);
+  #fit(): void {
+    const width = Math.max(1, this.#canvas.clientWidth);
+    const height = Math.max(1, this.#canvas.clientHeight);
     this.#renderer.setSize(width, height, false);
     const camera = this.#camera;
     camera.aspect = width / height;
     // Fit the frame's height, or its width in a narrow panel, so the shoulders stay in view.
     const halfTan = Math.tan((FOV / 2) * (Math.PI / 180));
-    const frameHeight = FRAME_TOP - FRAME_BOTTOM;
-    const frameWidth = 0.5;
-    const distance = Math.max(frameHeight / (2 * halfTan), frameWidth / (2 * halfTan * camera.aspect));
-    const centre = (FRAME_TOP + FRAME_BOTTOM) / 2;
+    const distance = Math.max(
+      (FRAME_ABOVE + FRAME_BELOW) / (2 * halfTan),
+      FRAME_WIDTH / (2 * halfTan * camera.aspect),
+    );
+    const centre = this.#headHeight + (FRAME_ABOVE - FRAME_BELOW) / 2;
     camera.position.set(0, centre + 0.02, distance);
     camera.lookAt(0, centre, 0);
     camera.updateProjectionMatrix();

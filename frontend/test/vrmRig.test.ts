@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { NEUTRAL_FACE, type FacePose } from '@/lib/cartoon/face';
+import { NEUTRAL_FACE, type FacePose } from '@/lib/face';
 import { ARM_REST, MORPHS, boneRotations, gaze, morphWeights } from '@/lib/vrm/rig';
 import { REST } from '@/lib/wordLipsync';
 

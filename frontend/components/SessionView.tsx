@@ -19,9 +19,7 @@ import type { Language, Strings } from '@/lib/language';
 import {
   INSTANT_TRANSCRIPT_KEY,
   type Presentation,
-  avatarKindOf,
   avatarOf,
-  lipsyncOf,
   loadInstantTranscript,
   voiceOf,
 } from '@/lib/presentation';
@@ -34,7 +32,6 @@ import {
   voicedAgentState,
 } from '@/lib/status';
 import { AnswerCard } from './AnswerCard';
-import { CartoonAvatar } from './CartoonAvatar';
 import { ConversationStatus, phaseLabel } from './ConversationStatus';
 import { LanguageSelector } from './LanguageSelector';
 import { ShowHistoryButton } from './HistorySidebar';
@@ -183,7 +180,6 @@ export function SessionView({
 
   const voice = voiceOf(presentation);
   const gender = avatarOf(presentation);
-  const avatarKind = avatarKindOf(presentation);
   const { spec, missing: voiceMissing } = useVoice(language, voice === 'off' ? null : voice);
   const instant = useInstantTranscript();
   const speech = useReplySpeech({
@@ -289,30 +285,18 @@ export function SessionView({
         <section className="flex min-h-0 flex-col gap-4">
           <div className="flex shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-panel">
             <div className="relative">
-              {avatarKind === 'vrm' ? (
+              {gender ? (
                 <VrmAvatar
-                  label={strings.avatarFemale2}
-                  aiLabel={strings.aiAvatar}
-                  loadingLabel={strings.loadingAvatar}
-                  creditLabel={strings.avatarCredit}
-                  className="h-[50vh] min-h-[240px]"
-                  audioTrack={speech.player?.track}
-                  agentState={agentState}
-                  mood={mood}
-                  lipsync={lipsyncOf(presentation)}
-                  words={speech.player}
-                />
-              ) : gender ? (
-                <CartoonAvatar
-                  key={presentation}
+                  key={gender}
                   gender={gender}
-                  label={gender === 'female' ? strings.avatarFemale : strings.avatarMale}
-                  aiLabel={strings.aiAvatar}
+                  label={gender === 'female' ? strings.avatarFemalePremium : strings.avatarMale}
+                  loadingLabel={strings.loadingAvatar}
+                  unavailableLabel={strings.avatarUnavailable}
+                  madeBy={strings.madeBy}
                   className="h-[50vh] min-h-[240px]"
                   audioTrack={speech.player?.track}
                   agentState={agentState}
                   mood={mood}
-                  lipsync={lipsyncOf(presentation)}
                   words={speech.player}
                 />
               ) : (

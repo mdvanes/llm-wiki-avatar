@@ -1,9 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useRef } from 'react';
-import { FaceAnimator, type FacePose, NEUTRAL_FACE } from '@/lib/cartoon/face';
+import { FaceAnimator, type FacePose, NEUTRAL_FACE } from '@/lib/face';
 import { LipSync, brightness, rms } from '@/lib/lipsync';
-import type { Lipsync, Mood } from '@/lib/protocol';
+import type { Mood } from '@/lib/protocol';
 import { ipaToVisemes } from '@/lib/tts/visemes';
 import { REST, type VisemeShape, WordLipSync, type WordSource } from '@/lib/wordLipsync';
 
@@ -16,9 +16,7 @@ export interface MoodEvent {
 export interface AvatarDriverInput {
   audioTrack?: MediaStreamTrack;
   mood?: MoodEvent;
-  /** `words`: follow the word timings of the speech, falling back to loudness where there are none. */
-  lipsync?: Lipsync;
-  /** Word timings of the speech, for the `words` lip-sync. */
+  /** Word timings of the speech; where there are none, the mouth follows the loudness of the voice. */
   words?: WordSource;
 }
 
@@ -59,16 +57,14 @@ class VoiceAnalyser {
 }
 
 /**
- * What every avatar does apart from drawing: lip-sync to the agent's voice (by loudness or word timings) and a face
+ * What the avatar does apart from drawing: lip-sync to the agent's voice (by word timings, or by loudness) and a face
  * that reacts to the mood and the agent's state. Returns a stable function to call once per animation frame.
  */
-export function useAvatarDriver({ audioTrack, mood, lipsync = 'audio', words: wordSource }: AvatarDriverInput) {
+export function useAvatarDriver({ audioTrack, mood, words: wordSource }: AvatarDriverInput) {
   const analyserRef = useRef<VoiceAnalyser | null>(null);
   const loudness = useRef(new LipSync());
-  const words = useRef<WordLipSync | null>(null);
+  const words = useRef(new WordLipSync(ipaToVisemes));
   const face = useRef<FaceAnimator | null>(null);
-  const live = useRef(lipsync);
-  live.current = lipsync;
 
   // Declared before the mood effect, so the face exists when the first mood arrives.
   useEffect(() => {
@@ -92,23 +88,16 @@ export function useAvatarDriver({ audioTrack, mood, lipsync = 'audio', words: wo
     return () => {
       analyserRef.current = null;
       loudness.current.reset();
-      words.current?.clear();
+      words.current.clear();
       analyser.close();
     };
   }, [audioTrack]);
 
-  useEffect(() => {
-    if (lipsync !== 'words') {
-      words.current?.clear();
-      return;
-    }
-    words.current ??= new WordLipSync(ipaToVisemes);
-  }, [lipsync]);
   useEffect(
     () =>
       wordSource?.subscribe((event) => {
-        if (!event) words.current?.clear();
-        else if (live.current === 'words') words.current?.add(event.segment, performance.now(), event.startsAt);
+        if (!event) words.current.clear();
+        else words.current.add(event.segment, performance.now(), event.startsAt);
       }),
     [wordSource],
   );
@@ -121,7 +110,7 @@ export function useAvatarDriver({ audioTrack, mood, lipsync = 'audio', words: wo
       const sample = analyser.sample();
       // Keep the loudness lip-sync running, so it can take over smoothly where there are no word timings.
       const byLoudness = loudness.current.update(sample.level, sample.tone, dt);
-      const byWords = live.current === 'words' ? words.current?.update(now, sample.level, dt) : null;
+      const byWords = words.current.update(now, sample.level, dt);
       shape = byWords ?? { ...REST, ...byLoudness };
       level = loudness.current.level;
     }

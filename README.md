@@ -52,8 +52,8 @@ Browser (Next.js)                                         agent (Node, @livekit/
   settings. By default the transcript shows a reply along with the voice, a sentence at a time; *Show dialog without
   delay* (on the settings page) shows it as it arrives.
 - **Voice and avatar.** A menu (on the start screen and in the header) picks how the agent answers: *Off* (text
-  replies only; you can still talk to it), *Voice only* (female or male) or *Voice and avatar* (female, female 2 or
-  male). The
+  replies only; you can still talk to it), *Voice only* (female or male) or *Voice and avatar* (*female (premium)*
+  or *male*). The
   choice is remembered in the browser and applies right away; a reply that is being spoken in another voice is
   stopped and shown in full. Push-to-talk keeps working with every choice.
 - **Stop button.** While a reply is spoken, the *Send* button becomes *Stop*. Clicking it silences the voice and the
@@ -66,24 +66,17 @@ Browser (Next.js)                                         agent (Node, @livekit/
   month. Click one to read it back, delete it, or *Continue conversation*: the agent then gets the earlier turns
   (the latest ones that fit in 14 KB) through the `restore_history` RPC, so it can refer back to them. History is not
   shared between browsers, and nothing is stored on the server.
-- **Avatar.** An animated photo of a man or a woman in business clothes, in front of an office building (no model
-  files to download). The face is cut out of the photo onto a WebGL triangle mesh that is bent per frame for the jaw,
-  lips, blinks, gaze, brows and head sway, over a still background with the person filled in
-  (`frontend/scripts/photo-avatar` builds both; without WebGL a 2D SVG cartoon is shown). The mouth blends between viseme shapes, the eyes
-  blink and glance, and the head sways and nods while speaking. Settings live in `frontend/lib/cartoon/` (mouth
-  shapes, moods, character looks) and `frontend/lib/photo/`.
-  - Lip-sync is driven by the loudness of the voice, so it works for any voice and language.
-  - *Voice and avatar, female (premium)* uses word-timed lip-sync instead: Kokoro's timestamped model reports how
-    long each sound lasts, and the browser turns the sounds into overlapping visemes in time with the audio, for
-    smoother mouth shapes. *Female 2* (below) does the same. Dutch and the other options use loudness lip-sync.
+- **Avatar.** A 3D [VRM](https://vrm.dev/en/) model, drawn with three.js and `@pixiv/three-vrm` (only loaded when an
+  avatar is shown): Ember for *Voice and avatar, female (premium)* and Nova for *Voice and avatar, male*, both
+  about 5 MB in `frontend/public/avatars/`. The browser drives the model's ARKit and viseme blend shapes for the
+  mouth, eyelids, brows and smile, its eye bones for the gaze, and its neck, chest and shoulder bones for head sway,
+  nods and breathing (`frontend/lib/vrm/rig.ts`). Without WebGL the panel says the avatar cannot be shown.
+  - Lip-sync is word-timed: Kokoro's timestamped model reports how long each sound lasts, and the browser turns the
+    sounds into overlapping visemes in time with the audio. Where there are no word timings (Dutch), the mouth
+    follows the loudness of the voice.
   - The agent starts each reply with a `[mood:x]` tag (`neutral`, `happy`, `sad`, `confused`). The tag is removed
-    from the reply and sets the avatar's brows, eyes and smile.
+    from the reply and sets the avatar's brows, eyes and smile (`frontend/lib/face.ts`).
   - Listening, thinking and speaking each drive their own idle behaviour.
-- **3D avatar.** *Voice and avatar, female 2* is a 3D [VRM](https://vrm.dev/en/) model (Ember, 5 MB, in
-  `frontend/public/avatars/ember.vrm`) drawn with three.js and `@pixiv/three-vrm`, which are only loaded for this
-  option. It uses the same word-timed lip-sync, moods and idle behaviour, but drives the model's own ARKit and
-  viseme blend shapes, eye bones and neck, chest and shoulder bones (`frontend/lib/vrm/rig.ts`). Without WebGL, or
-  if the model fails to load, the female photo avatar is shown instead.
 
 ## Requirements
 
@@ -437,13 +430,7 @@ docker-compose.yml, docker-compose.prod.yml, .env.example
 - **Licenses.** Kokoro and kokoro-js (whose English text normalization is ported) are Apache-2.0, and the Piper
   voices each have their own license (see their model cards). eSpeak NG, which the browser loads for pronunciation,
   is GPL-3.0.
-- **Avatar photos.** Both avatar photos are by [Vitaly Gariev](https://unsplash.com/@silverkblack) on
-  [Unsplash](https://unsplash.com), used (cropped and animated) under the
-  [Unsplash License](https://unsplash.com/license):
-  [man](https://unsplash.com/photos/man-in-suit-smiling-in-front-of-modern-building-7H-q-K0soEI) and
-  [woman](https://unsplash.com/photos/a-woman-in-glasses-stands-with-arms-crossed-outdoors-J_9U-jTWGIw). See
-  `frontend/public/avatars/CREDITS.md`. They show real people, and Unsplash photos come without a model release, so
-  the photo avatars carry a small "AI avatar" label.
-- **3D avatar.** *Voice and avatar, female 2* is [Ember](https://vtubeme.com/free-vrm-avatars/ember) by
-  [VTubeMe](https://vtubeme.com), used unmodified under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/);
-  the avatar shows a credit link.
+- **Avatars.** [Ember](https://vtubeme.com/free-vrm-avatars/ember) and
+  [Nova](https://vtubeme.com/free-vrm-avatars/nova) are by [VTubeMe](https://vtubeme.com), used unmodified under
+  [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); the avatar shows a credit link. See
+  `frontend/public/avatars/CREDITS.md`.
