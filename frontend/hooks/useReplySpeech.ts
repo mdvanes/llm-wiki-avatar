@@ -13,7 +13,7 @@ import { type PlayerState, SpeechPlayer } from '@/lib/tts/player';
 import type { Speaker } from '@/lib/tts/speaker';
 import { WebSpeechPlayer } from '@/lib/tts/webSpeechPlayer';
 import { speechSegments } from '@/lib/tts/speechText';
-import { type VoiceGender, type VoiceSpec, voiceFiles, voiceFor, voiceSpec } from '@/lib/tts/voices';
+import { type VoiceGender, type VoiceSpec, loadVoiceChoice, voiceFiles, voiceFor, voiceSpec } from '@/lib/tts/voices';
 
 /** The browser's voice settings, when the browser engine is chosen for speech output. */
 export interface WebVoice {
@@ -33,10 +33,24 @@ export function useVoice(
   const { output } = useSpeechEngines();
   const [ready, setReady] = useState<boolean>();
   const [voiceURI, setVoiceURI] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<string | null>(null);
   const spec = useMemo(
-    () => (gender && caps && output === 'device' ? voiceSpec(voiceFor(language, gender), caps) : undefined),
-    [language, gender, caps, output],
+    () => (gender && caps && output === 'device' ? voiceSpec(voiceFor(language, gender, chosen), caps) : undefined),
+    [language, gender, caps, output, chosen],
   );
+
+  useEffect(() => {
+    if (!gender) return;
+    // The choice may be changed in the settings tab meanwhile.
+    const read = () => setChosen(loadVoiceChoice(language, gender));
+    read();
+    window.addEventListener('focus', read);
+    window.addEventListener('storage', read);
+    return () => {
+      window.removeEventListener('focus', read);
+      window.removeEventListener('storage', read);
+    };
+  }, [language, gender]);
 
   useEffect(() => {
     const read = () => setVoiceURI(loadWebVoice(language));

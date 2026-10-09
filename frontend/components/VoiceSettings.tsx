@@ -1,14 +1,27 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Language, Strings } from '@/lib/language';
+import { LANGUAGES, type Language, type Strings } from '@/lib/language';
 import type { WordTiming } from '@/lib/wordLipsync';
 import { loadInstantTranscript, saveInstantTranscript } from '@/lib/presentation';
 import { cachedFiles, formatBytes, persistStorage, removeFiles } from '@/lib/stt/cache';
 import type { DeviceCaps } from '@/lib/stt/models';
 import { TtsClient } from '@/lib/tts/client';
 import { SpeechPlayer } from '@/lib/tts/player';
-import { SAMPLE_TEXT, TTS_VOICES, type TtsVoice, filesToRemove, ttsDevice, voiceFiles, voiceSpec } from '@/lib/tts/voices';
+import {
+  SAMPLE_TEXT,
+  TTS_VOICES,
+  type TtsVoice,
+  type VoiceGender,
+  filesToRemove,
+  loadVoiceChoice,
+  saveVoiceChoice,
+  ttsDevice,
+  voiceFiles,
+  voiceFor,
+  voiceSpec,
+  voicesFor,
+} from '@/lib/tts/voices';
 
 interface CacheState {
   bytes: number;
@@ -24,6 +37,8 @@ interface Run {
   done: boolean;
   error?: string;
 }
+
+const GENDERS: readonly VoiceGender[] = ['female', 'male'];
 
 const BUTTON = 'rounded-full px-3 py-1 text-xs font-semibold disabled:opacity-40';
 const PRIMARY = `${BUTTON} bg-accent text-bg`;
@@ -61,6 +76,7 @@ export function VoiceSettings({
   const [run, setRun] = useState<Run>();
   const [clock, setClock] = useState(0);
   const [instant, setInstant] = useState(false);
+  const [choices, setChoices] = useState<Record<string, string>>({});
   const client = useRef<TtsClient | undefined>(undefined);
   const player = useRef<SpeechPlayer | undefined>(undefined);
 
@@ -90,6 +106,13 @@ export function VoiceSettings({
   useEffect(() => {
     startClient();
     setInstant(loadInstantTranscript());
+    setChoices(
+      Object.fromEntries(
+        LANGUAGES.flatMap((l) =>
+          GENDERS.map((g) => [`${l.code}.${g}`, voiceFor(l.code, g, loadVoiceChoice(l.code, g)).id] as const),
+        ),
+      ),
+    );
     return () => {
       player.current?.close();
       client.current?.terminate();
@@ -206,6 +229,33 @@ export function VoiceSettings({
             <span className="block text-xs text-muted">{strings.instantTranscriptNote}</span>
           </span>
         </label>
+        <div className="mb-3 flex flex-col gap-2 rounded-xl border border-border bg-panel p-4 text-sm">
+          <span className="font-semibold">{strings.voiceChoice}</span>
+          <span className="text-xs text-muted">{strings.voiceChoiceNote}</span>
+          {LANGUAGES.flatMap((l) =>
+            GENDERS.filter((g) => voicesFor(l.code, g).length > 1).map((g) => (
+              <label key={`${l.code}.${g}`} className="flex flex-wrap items-center gap-2">
+                <span className="w-40">
+                  {l.label} · {g === 'female' ? strings.female : strings.male}
+                </span>
+                <select
+                  value={choices[`${l.code}.${g}`] ?? ''}
+                  onChange={(e) => {
+                    saveVoiceChoice(l.code, g, e.target.value);
+                    setChoices((all) => ({ ...all, [`${l.code}.${g}`]: e.target.value }));
+                  }}
+                  className="rounded-lg border border-border bg-panel-2 px-2 py-1 text-sm"
+                >
+                  {voicesFor(l.code, g).map((voice) => (
+                    <option key={voice.id} value={voice.id}>
+                      {voice.label} · {voice.locale}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )),
+          )}
+        </div>
         <ul className="flex flex-col gap-3">
           {TTS_VOICES.map((voice) => {
             const state = cache?.[voice.id];
@@ -225,7 +275,7 @@ export function VoiceSettings({
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-semibold">{voice.label}</span>
                       <span className="rounded-full bg-panel-2 px-2 py-0.5 text-xs text-muted">
-                        {voice.language.toUpperCase()} · {voice.gender === 'female' ? strings.female : strings.male}
+                        {voice.locale} · {voice.gender === 'female' ? strings.female : strings.male}
                       </span>
                       {voice.engine === 'kokoro' && (
                         <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs text-accent">
@@ -302,7 +352,7 @@ export function VoiceSettings({
               >
                 {ready.map((voice) => (
                   <option key={voice.id} value={voice.id}>
-                    {voice.label} · {voice.language.toUpperCase()}
+                    {voice.label} · {voice.locale}
                   </option>
                 ))}
               </select>

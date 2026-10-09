@@ -151,6 +151,8 @@ export const STRINGS = {
     transcribedIn: 'Transcribed in',
     voices: 'Voices',
     voicesIntro: 'Replies are spoken by a voice that runs in this browser. Download the voices for the languages you use.',
+    voiceChoice: 'Voice to use',
+    voiceChoiceNote: 'Pick which downloaded voice speaks the replies in each language.',
     female: 'Female',
     male: 'Male',
     wordTimings: 'Word timings (avatar lip-sync)',
@@ -400,6 +402,8 @@ export const STRINGS = {
     voices: 'Stemmen',
     voicesIntro:
       'Antwoorden worden uitgesproken door een stem die in deze browser draait. Download de stemmen voor de talen die je gebruikt.',
+    voiceChoice: 'Te gebruiken stem',
+    voiceChoiceNote: 'Kies welke gedownloade stem de antwoorden in elke taal uitspreekt.',
     female: 'Vrouw',
     male: 'Man',
     wordTimings: 'Woordtiming (lipsync van de avatar)',

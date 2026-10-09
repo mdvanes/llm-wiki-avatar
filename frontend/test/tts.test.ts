@@ -18,6 +18,13 @@ describe('voices', () => {
     expect(new Set(TTS_VOICES.map((v) => v.id)).size).toBe(TTS_VOICES.length);
   });
 
+  it('uses the chosen voice, else the first one for the language and gender', () => {
+    expect(voiceFor('nl', 'female').id).toBe('piper-nl_BE-nathalie');
+    expect(voiceFor('nl', 'female', 'piper-nl_NL-dii').id).toBe('piper-nl_NL-dii');
+    expect(voiceFor('nl', 'male', 'piper-nl_NL-dii').id).toBe('piper-nl_BE-rdh');
+    expect(voiceFor('nl', 'male', 'piper-nl_NL-alex').locale).toBe('nl-NL');
+  });
+
   it('runs Kokoro on WebGPU in full precision when it can, else 8-bit on WASM', () => {
     const heart = findVoice('kokoro-af_heart')!;
     expect(voiceSpec(heart, gpu)).toMatchObject({ device: 'webgpu', dtype: 'fp32' });
