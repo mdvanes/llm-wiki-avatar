@@ -39,6 +39,8 @@ export type RecognizerStatus =
   | { kind: 'none' }
   | { kind: 'loading'; progress: number }
   | { kind: 'ready'; model: SttModel; device: SttDevice }
+  /** Speech input by the browser's own recognizer; nothing to load. */
+  | { kind: 'browser' }
   | { kind: 'error'; message: string };
 
 export interface Recognizer {
@@ -72,7 +74,11 @@ export function useSpeechRecognizer(model: SttModel | undefined): Recognizer {
     setStatus({ kind: 'loading', progress: 0 });
     worker
       .load(loadSpec(model, device), (loaded, total) => {
-        if (!cancelled) setStatus({ kind: 'loading', progress: total > 0 ? loaded / total : 0 });
+        if (!cancelled)
+          setStatus({
+            kind: 'loading',
+            progress: total > 0 ? loaded / total : 0,
+          });
       })
       .then(() => {
         if (!cancelled) setStatus({ kind: 'ready', model, device });
@@ -80,7 +86,10 @@ export function useSpeechRecognizer(model: SttModel | undefined): Recognizer {
       .catch((err: unknown) => {
         if (cancelled) return;
         console.error('speech model failed to load', err);
-        setStatus({ kind: 'error', message: err instanceof Error ? err.message : String(err) });
+        setStatus({
+          kind: 'error',
+          message: err instanceof Error ? err.message : String(err),
+        });
       });
     return () => {
       cancelled = true;

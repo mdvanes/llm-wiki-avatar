@@ -13,3 +13,4 @@ frontend/public/speech/
 frontend/next-env.d.ts
 *.tsbuildinfo
 tmp/
+docs/

@@ -1,18 +1,13 @@
 'use client';
 
-import {
-  useAgent,
-  useLocalParticipant,
-  useSessionContext,
-  useSessionMessages,
-} from '@livekit/components-react';
+import { useAgent, useLocalParticipant, useSessionContext, useSessionMessages } from '@livekit/components-react';
 import type { AgentState } from '@livekit/components-react';
 import dynamic from 'next/dynamic';
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useConversationRecorder } from '@/hooks/useConversationRecorder';
 import { useContinuousMode } from '@/hooks/useContinuousMode';
 import { useIsMobile } from '@/hooks/useIsMobile';
-import { usePushToTalk } from '@/hooks/usePushToTalk';
+import { useSpeechInput } from '@/hooks/useSpeechInput';
 import { useReplySpeech, useVoice } from '@/hooks/useReplySpeech';
 import { useActiveSttModel } from '@/hooks/useSpeechRecognizer';
 import { useWakeLock } from '@/hooks/useWakeLock';
@@ -28,13 +23,7 @@ import {
   voiceOf,
 } from '@/lib/presentation';
 import { type AgentError, RPC_INTERRUPT, RPC_RESTORE_HISTORY, RPC_SET_LANGUAGE } from '@/lib/protocol';
-import {
-  type Phase,
-  TRANSCRIPT_GRACE_MS,
-  conversationPhase,
-  holdsPrevious,
-  voicedAgentState,
-} from '@/lib/status';
+import { type Phase, TRANSCRIPT_GRACE_MS, conversationPhase, holdsPrevious, voicedAgentState } from '@/lib/status';
 import { AnswerCard } from './AnswerCard';
 import { ConversationStatus, phaseLabel } from './ConversationStatus';
 import { ErrorNotice } from './ErrorNotice';
@@ -85,7 +74,11 @@ function useRestoreHistory(previous: Conversation | undefined, agentIdentity: st
       // The agent registers its RPC methods just after joining, so the first call can be early.
       for (let attempt = 1; attempt <= RESTORE_ATTEMPTS && !cancelled; attempt++) {
         try {
-          await localParticipant.performRpc({ destinationIdentity: agentIdentity, method: RPC_RESTORE_HISTORY, payload });
+          await localParticipant.performRpc({
+            destinationIdentity: agentIdentity,
+            method: RPC_RESTORE_HISTORY,
+            payload,
+          });
           return;
         } catch (err) {
           if (attempt === RESTORE_ATTEMPTS) console.error('restore_history failed', err);
@@ -119,10 +112,15 @@ function useSettledPhase(phase: Phase): Phase {
  */
 function useShownAgentError(
   agentError: AgentError | undefined,
-  entries: ReadonlyArray<{ fromUser: boolean; timestamp: number; text: string }>,
+  entries: ReadonlyArray<{
+    fromUser: boolean;
+    timestamp: number;
+    text: string;
+  }>,
 ) {
   const [dismissed, setDismissed] = useState<AgentError>();
-  const repliedSince = !!agentError && entries.some((m) => !m.fromUser && m.text.trim() && m.timestamp > agentError.timestamp);
+  const repliedSince =
+    !!agentError && entries.some((m) => !m.fromUser && m.text.trim() && m.timestamp > agentError.timestamp);
   const shown = agentError && agentError !== dismissed && !repliedSince ? agentError : undefined;
   return { shown, dismiss: () => setDismissed(agentError) };
 }
@@ -162,12 +160,16 @@ export function SessionView({
   const [switching, setSwitching] = useState(false);
 
   const current = useMemo(() => messages.map(toTranscriptEntry), [messages]);
-  const entries = useMemo(
-    () => mergeEntries(previous?.messages ?? [], current),
-    [previous, current],
-  );
+  const entries = useMemo(() => mergeEntries(previous?.messages ?? [], current), [previous, current]);
   const allAnswers = useMemo(() => mergeEntries(previous?.answers ?? [], answers), [previous, answers]);
-  useConversationRecorder({ id: conversationId, previous, messages: entries, answers: allAnswers, language, onSave });
+  useConversationRecorder({
+    id: conversationId,
+    previous,
+    messages: entries,
+    answers: allAnswers,
+    language,
+    onSave,
+  });
   useRestoreHistory(previous, agent.isConnected ? agent.identity : undefined);
   const llmError = useShownAgentError(agentError, current);
   const reconnecting = session.connectionState === 'reconnecting' || session.connectionState === 'signalReconnecting';
@@ -202,12 +204,14 @@ export function SessionView({
 
   const voice = voiceOf(presentation);
   const gender = avatarOf(presentation);
-  const { spec, missing: voiceMissing } = useVoice(language, voice === 'off' ? null : voice);
+  const { spec, web, missing: voiceMissing } = useVoice(language, voice === 'off' ? null : voice);
+  const voiced = spec !== undefined || web !== undefined;
   const instant = useInstantTranscript();
   const speech = useReplySpeech({
     messages: current,
     final: agent.state !== 'thinking' && agent.state !== 'speaking',
     spec,
+    web,
     instant,
   });
   const stopSpeech = speech.stop;
@@ -216,14 +220,18 @@ export function SessionView({
     stopSpeech();
     if (!agent.identity) return;
     localParticipant
-      .performRpc({ destinationIdentity: agent.identity, method: RPC_INTERRUPT, payload: '' })
+      .performRpc({
+        destinationIdentity: agent.identity,
+        method: RPC_INTERRUPT,
+        payload: '',
+      })
       .catch((err) => console.error('interrupt failed', err));
   }, [agent.identity, localParticipant, stopSpeech]);
 
   const sttModel = useActiveSttModel();
   const continuous = useContinuousMode();
   const mobile = useIsMobile();
-  const ptt = usePushToTalk({
+  const ptt = useSpeechInput({
     model: sttModel,
     language,
     continuous,
@@ -254,10 +262,10 @@ export function SessionView({
 
   // Without a voice the agent "speaks" by writing its reply.
   const shownStrings = useMemo(
-    () => (spec ? strings : { ...strings, speaking: strings.answering }),
-    [spec, strings],
+    () => (voiced ? strings : { ...strings, speaking: strings.answering }),
+    [voiced, strings],
   );
-  const agentState = (spec ? voicedAgentState(agent.state, speech.state) : agent.state) as AgentState;
+  const agentState = (voiced ? voicedAgentState(agent.state, speech.state) : agent.state) as AgentState;
   const phase = useSettledPhase(conversationPhase(agentState, ptt.state));
   const busy = phase === 'hearing' || phase === 'transcribing' || phase === 'thinking';
   const showStop = speech.state !== 'idle';
@@ -265,7 +273,13 @@ export function SessionView({
   const shownEntries = useMemo(() => display(entries), [display, entries]);
   const newestFirst = [...allAnswers].reverse();
   const voiceNotice =
-    voice === 'off' ? undefined : speech.failed ? strings.voiceFailedShort : voiceMissing ? strings.voiceMissing : undefined;
+    voice === 'off'
+      ? undefined
+      : speech.failed
+        ? strings.voiceFailedShort
+        : voiceMissing
+          ? strings.voiceMissing
+          : undefined;
 
   return (
     <div className="flex h-full flex-col">
@@ -282,18 +296,18 @@ export function SessionView({
         </div>
         <div className="flex items-center gap-2 sm:gap-3">
           <div className="hidden items-center gap-3 md:flex">
-          <PresentationSelector
-            value={presentation}
-            onChange={changePresentation}
-            disabled={!agent.isConnected}
-            strings={strings}
-          />
-          <LanguageSelector
-            value={language}
-            onChange={changeLanguage}
-            disabled={switching || !agent.isConnected}
-            label={strings.language}
-          />
+            <PresentationSelector
+              value={presentation}
+              onChange={changePresentation}
+              disabled={!agent.isConnected}
+              strings={strings}
+            />
+            <LanguageSelector
+              value={language}
+              onChange={changeLanguage}
+              disabled={switching || !agent.isConnected}
+              label={strings.language}
+            />
           </div>
           <SettingsLink label={strings.settings} newTab />
           <button
@@ -314,7 +328,11 @@ export function SessionView({
       {(llmError.shown || agent.state === 'failed') && (
         <div className="flex max-h-[45vh] flex-col gap-2 overflow-y-auto border-b border-border p-3">
           {llmError.shown && (
-            <ErrorNotice problem={describeAgentError(llmError.shown, strings)} strings={strings} onDismiss={llmError.dismiss} />
+            <ErrorNotice
+              problem={describeAgentError(llmError.shown, strings)}
+              strings={strings}
+              onDismiss={llmError.dismiss}
+            />
           )}
           {agent.state === 'failed' && (
             <ErrorNotice problem={describeAgentAbsence(agent.failureReasons, strings)} strings={strings} />
@@ -428,9 +446,7 @@ export function SessionView({
         </section>
       </main>
 
-      {page && (
-        <PageViewer page={page} closeLabel={strings.close} onClose={() => setPage(null)} onNavigate={setPage} />
-      )}
+      {page && <PageViewer page={page} closeLabel={strings.close} onClose={() => setPage(null)} onNavigate={setPage} />}
     </div>
   );
 }

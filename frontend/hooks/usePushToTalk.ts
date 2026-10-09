@@ -35,6 +35,8 @@ export interface PushToTalk {
   /** The local microphone track (never published); for the level meter. */
   track: LocalAudioTrack | undefined;
   error: string | undefined;
+  /** Browser speech input only: what is being recognized so far. */
+  interim?: string;
   /** Hands-free mode is on. */
   continuous: boolean;
   /** Continuous mode: the microphone is open and utterances are detected. */
@@ -47,7 +49,14 @@ export interface PushToTalk {
 }
 
 /** Hold to record, release to transcribe in the browser. */
-export function usePushToTalk({ model, language, continuous = false, paused = false, onPress, onResult }: Options): PushToTalk {
+export function usePushToTalk({
+  model,
+  language,
+  continuous = false,
+  paused = false,
+  onPress,
+  onResult,
+}: Options): PushToTalk {
   const recognizer = useSpeechRecognizer(model);
   const [state, setState] = useState<SpeechState>('idle');
   const [held, setHeld] = useState(false);
@@ -83,7 +92,11 @@ export function usePushToTalk({ model, language, continuous = false, paused = fa
 
   // The microphone opens on the first press and stays open, so later turns start without delay.
   const openRecorder = useCallback(() => {
-    recorder.current ??= createLocalAudioTrack({ echoCancellation: true, noiseSuppression: true, autoGainControl: true })
+    recorder.current ??= createLocalAudioTrack({
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    })
       .then((created) => {
         setTrack(created);
         return MicRecorder.open(created.mediaStreamTrack);
@@ -203,29 +216,43 @@ export function usePushToTalk({ model, language, continuous = false, paused = fa
       });
   }, [openRecorder, continuous]);
 
-  const release = useCallback((send: boolean) => {
-    if (!heldRef.current) return;
-    heldRef.current = false;
-    const id = turn.current;
-    setHeld(false);
-    void (async () => {
-      await starting.current;
-      await new Promise((r) => setTimeout(r, RELEASE_TAIL_MS));
-      // Pressed again during the tail: that turn owns the recorder now.
-      if (id !== turn.current) return;
-      const r = await recorder.current?.catch(() => undefined);
-      if (!r?.recording) {
-        setState('idle');
-        return;
-      }
-      const { samples, sampleRate } = await r.stop();
-      if (!send) {
-        setState('idle');
-        return;
-      }
-      await transcribe(samples, sampleRate, id);
-    })();
-  }, [transcribe]);
+  const release = useCallback(
+    (send: boolean) => {
+      if (!heldRef.current) return;
+      heldRef.current = false;
+      const id = turn.current;
+      setHeld(false);
+      void (async () => {
+        await starting.current;
+        await new Promise((r) => setTimeout(r, RELEASE_TAIL_MS));
+        // Pressed again during the tail: that turn owns the recorder now.
+        if (id !== turn.current) return;
+        const r = await recorder.current?.catch(() => undefined);
+        if (!r?.recording) {
+          setState('idle');
+          return;
+        }
+        const { samples, sampleRate } = await r.stop();
+        if (!send) {
+          setState('idle');
+          return;
+        }
+        await transcribe(samples, sampleRate, id);
+      })();
+    },
+    [transcribe],
+  );
 
-  return { status: recognizer.status, state, held, track, error, continuous, listening, toggleListening, press, release };
+  return {
+    status: recognizer.status,
+    state,
+    held,
+    track,
+    error,
+    continuous,
+    listening,
+    toggleListening,
+    press,
+    release,
+  };
 }

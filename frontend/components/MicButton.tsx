@@ -68,9 +68,10 @@ function usePushToTalkKey({ press, release }: PushToTalk, enabled: boolean) {
 export function MicButton({ ptt, strings }: Props) {
   const level = useTrackVolume(ptt.track);
   const { status } = ptt;
-  usePushToTalkKey(ptt, status.kind === 'ready' && !ptt.continuous);
+  const usable = status.kind === 'ready' || status.kind === 'browser';
+  usePushToTalkKey(ptt, usable && !ptt.continuous);
 
-  if (status.kind !== 'ready') {
+  if (!usable) {
     const title =
       status.kind === 'loading'
         ? strings.loadingSpeechModel

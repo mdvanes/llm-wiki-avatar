@@ -1,5 +1,6 @@
 'use client';
 
+import { useSpeechEngines } from '@/hooks/useSpeechEngines';
 import { useActiveSttModel } from '@/hooks/useSpeechRecognizer';
 import type { Problem } from '@/lib/diagnostics';
 import type { Language, Strings } from '@/lib/language';
@@ -37,6 +38,7 @@ export function WelcomeView({
   onShowHistory,
 }: Props) {
   const sttModel = useActiveSttModel();
+  const { input } = useSpeechEngines();
   return (
     <main className="relative grid min-h-full place-items-center p-6">
       {onShowHistory && (
@@ -62,7 +64,7 @@ export function WelcomeView({
           />
           <SettingsLink label={strings.settings} />
         </div>
-        {!sttModel && <p className="text-sm text-muted">{strings.noSpeechModel}</p>}
+        {!sttModel && input === 'device' && <p className="text-sm text-muted">{strings.noSpeechModel}</p>}
         <button
           type="button"
           onClick={onStart}

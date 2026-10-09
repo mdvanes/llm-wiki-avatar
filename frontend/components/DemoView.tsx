@@ -2,14 +2,21 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useContinuousMode } from '@/hooks/useContinuousMode';
-import { usePushToTalk } from '@/hooks/usePushToTalk';
+import { useSpeechInput } from '@/hooks/useSpeechInput';
 import { useReplySpeech, useVoice } from '@/hooks/useReplySpeech';
 import { useActiveSttModel } from '@/hooks/useSpeechRecognizer';
 import { useWakeLock } from '@/hooks/useWakeLock';
 import { withBase } from '@/lib/basePath';
 import type { TranscriptEntry } from '@/lib/history';
 import { type Language, STRINGS, loadLanguage, saveLanguage } from '@/lib/language';
-import { type Presentation, avatarOf, loadInstantTranscript, loadPresentation, savePresentation, voiceOf } from '@/lib/presentation';
+import {
+  type Presentation,
+  avatarOf,
+  loadInstantTranscript,
+  loadPresentation,
+  savePresentation,
+  voiceOf,
+} from '@/lib/presentation';
 import { conversationPhase, voicedAgentState } from '@/lib/status';
 import { ConversationStatus } from './ConversationStatus';
 import { LanguageSelector } from './LanguageSelector';
@@ -49,12 +56,12 @@ export function DemoView({ defaultPresentation }: { defaultPresentation: Present
 
   const voice = voiceOf(presentation);
   const gender = avatarOf(presentation);
-  const { spec, missing: voiceMissing } = useVoice(language, voice === 'off' ? null : voice);
-  const speech = useReplySpeech({ messages, final: true, spec, instant });
+  const { spec, web, missing: voiceMissing } = useVoice(language, voice === 'off' ? null : voice);
+  const speech = useReplySpeech({ messages, final: true, spec, web, instant });
   const stopSpeech = speech.stop;
 
   // While the reply plays, the microphone is ignored: on speakerphone it would hear the reply as speech.
-  const ptt = usePushToTalk({
+  const ptt = useSpeechInput({
     model: sttModel,
     language,
     continuous,
@@ -68,18 +75,24 @@ export function DemoView({ defaultPresentation }: { defaultPresentation: Present
   });
   useWakeLock(ptt.listening);
 
-  const agentState = spec ? voicedAgentState('listening', speech.state) : 'listening';
+  const voiced = spec !== undefined || web !== undefined;
+  const agentState = voiced ? voicedAgentState('listening', speech.state) : 'listening';
   const phase = conversationPhase(agentState, ptt.state);
   const shown = useMemo(() => speech.display(messages), [speech, messages]);
   const micSettings = ptt.track?.mediaStreamTrack.getSettings();
-  const notice = voice !== 'off' && (speech.failed ? strings.voiceFailedShort : voiceMissing ? strings.voiceMissing : undefined);
+  const notice =
+    voice !== 'off' && (speech.failed ? strings.voiceFailedShort : voiceMissing ? strings.voiceMissing : undefined);
 
   return (
     <div className="flex h-dvh flex-col pb-[env(safe-area-inset-bottom)]">
       <header className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
         <span className="truncate font-semibold">🎙️ {strings.demoTitle}</span>
         <div className="flex items-center gap-2">
-          <LanguageSelector value={language} onChange={(l) => (setLanguage(l), saveLanguage(l))} label={strings.language} />
+          <LanguageSelector
+            value={language}
+            onChange={(l) => (setLanguage(l), saveLanguage(l))}
+            label={strings.language}
+          />
           <SettingsLink label={strings.settings} />
         </div>
       </header>
@@ -131,7 +144,7 @@ export function DemoView({ defaultPresentation }: { defaultPresentation: Present
           )}
         </div>
 
-        {!sttModel || notice ? (
+        {(!sttModel && ptt.engine !== 'browser') || notice ? (
           <p className="text-sm text-muted">
             {strings.demoSetup}{' '}
             <a href={withBase('/settings')} className="text-accent underline">
@@ -142,6 +155,7 @@ export function DemoView({ defaultPresentation }: { defaultPresentation: Present
           <p className="text-xs text-muted">{strings.demoStartListening}</p>
         )}
         {ptt.error && <p className="text-sm text-danger">{strings.micUnavailable}</p>}
+        {ptt.interim && <p className="text-sm italic text-muted">{ptt.interim}</p>}
 
         <section className="rounded-xl border border-border bg-panel">
           <Transcript messages={shown} emptyText={strings.demoIntro} maxEntries={4} thinking={false} />
@@ -152,8 +166,22 @@ export function DemoView({ defaultPresentation }: { defaultPresentation: Present
           <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
             <dt>{strings.demoModel}</dt>
             <dd>
-              {ptt.status.kind === 'ready' ? `${ptt.status.model.label} (${ptt.status.device})` : (sttModel?.label ?? strings.demoNone)}
+              {ptt.status.kind === 'ready'
+                ? `${ptt.status.model.label} (${ptt.status.device})`
+                : ptt.status.kind === 'browser'
+                  ? strings.demoBrowserSpeech
+                  : (sttModel?.label ?? strings.demoNone)}
             </dd>
+            <dt>{strings.demoVoiceEngine}</dt>
+            <dd>{web ? strings.demoBrowserSpeech : spec ? spec.engine : strings.demoNone}</dd>
+            <dt>{strings.demoFirstSound}</dt>
+            <dd>{speech.latencyMs === undefined ? '–' : `${Math.round(speech.latencyMs)} ms`}</dd>
+            {ptt.error && (
+              <>
+                <dt>{strings.demoLastError}</dt>
+                <dd>{ptt.error}</dd>
+              </>
+            )}
             <dt>{strings.demoLastTranscription}</dt>
             <dd>{lastMs === undefined ? '–' : `${Math.round(lastMs)} ms`}</dd>
             <dt>{strings.demoMic}</dt>

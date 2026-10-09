@@ -88,6 +88,8 @@ A static, backend-free build runs just the speech front end: what the microphone
 - **Hands-free** (Settings): listens continuously and detects utterances, instead of push-to-talk. The microphone is ignored while a reply is spoken (and a moment after), otherwise the speakerphone would be heard as the user. Tap the mic to mute. The screen is kept awake while listening. This also works in the full app.
 - On small screens the history sidebar and the "On screen" card are hidden and only the last two transcript lines are shown.
 
+- **Speech engines** (Settings): speech to text and text to speech can each use either the on-device models or the browser's **Web Speech API**. The browser engines need no download and are far faster on phones (they are the default on Android/iOS when supported), but Chrome sends the recognition audio to Google, so it needs a connection and is less private. Browser voices are the ones installed on the device (pick one under *Text to speech*). The avatar's lip-sync uses a stand-in pulse instead of the voice, and Android may beep when recognition restarts.
+
 Car test checklist: Chrome on Android over HTTPS; try phone speaker and Bluetooth; note the "Last transcription" time and microphone settings (echo cancellation, sample rate) under *Diagnostics*. Bluetooth hands-free can lower microphone quality, and WebGPU is often unavailable on Android, so Whisper runs on the CPU.
 
 ## Requirements
