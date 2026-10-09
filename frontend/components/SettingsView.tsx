@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePushToTalk } from '@/hooks/usePushToTalk';
 import { useDeviceCaps } from '@/hooks/useSpeechRecognizer';
 import { type Language, STRINGS, loadLanguage, saveLanguage } from '@/lib/language';
+import { loadContinuous, saveContinuous } from '@/lib/continuous';
 import type { PublicModelConfig } from '@/lib/server-config';
 import {
   type StorageInfo,
@@ -27,6 +28,7 @@ import {
 import { LanguageSelector } from './LanguageSelector';
 import { MicButton } from './MicButton';
 import { VoiceSettings } from './VoiceSettings';
+import { withBase } from '@/lib/basePath';
 
 interface CacheState {
   bytes: number;
@@ -48,7 +50,9 @@ function capsText(caps: DeviceCaps, strings: (typeof STRINGS)['en']): string {
 }
 
 /** Download, select and remove the speech models (recognition and voices) that run in this browser. */
-export function SettingsView({ modelConfig }: { modelConfig: PublicModelConfig }) {
+export function SettingsView({ modelConfig }: { modelConfig: PublicModelConfig | null }) {
+  const [continuous, setContinuous] = useState(false);
+  useEffect(() => setContinuous(loadContinuous()), []);
   const [language, setLanguage] = useState<Language>('en');
   const strings = STRINGS[language];
   const caps = useDeviceCaps();
@@ -153,7 +157,7 @@ export function SettingsView({ modelConfig }: { modelConfig: PublicModelConfig }
   return (
     <main className="mx-auto flex min-h-full max-w-3xl flex-col gap-6 p-6">
       <header className="flex items-center justify-between gap-3">
-        <a href="/" className="text-sm text-muted hover:text-accent">
+        <a href={withBase('/')} className="text-sm text-muted hover:text-accent">
           ← {strings.backToApp}
         </a>
         <LanguageSelector
@@ -170,94 +174,112 @@ export function SettingsView({ modelConfig }: { modelConfig: PublicModelConfig }
         <h1 className="text-2xl font-semibold">{strings.settings}</h1>
       </div>
 
-      <section className="min-w-0 border-b border-border pb-6 text-sm [overflow-wrap:anywhere]" aria-labelledby="model-connection">
-        <h2 id="model-connection" className="text-lg font-semibold">{strings.modelConnection}</h2>
-        <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1">
-          <dt className="text-muted">{strings.configuredProvider}</dt>
-          <dd>{modelConfig.provider === 'ollama' ? 'Ollama' : modelConfig.provider === 'legacy' ? strings.legacyProvider : 'OpenAI-compatible API'}</dd>
-          <dt className="text-muted">{strings.configuredAuth}</dt>
-          <dd>{modelConfig.auth === 'entra' ? 'Microsoft Entra ID' : strings.apiKeyAuth}</dd>
-          <dt className="text-muted">{strings.configuredModel}</dt>
-          <dd className="break-all font-mono">{modelConfig.model ?? strings.modelNotSet}</dd>
-        </dl>
-        <p className="mt-2 text-xs text-muted">{strings.modelConfigNote}</p>
+      {modelConfig && (
+        <section className="min-w-0 border-b border-border pb-6 text-sm [overflow-wrap:anywhere]" aria-labelledby="model-connection">
+          <h2 id="model-connection" className="text-lg font-semibold">{strings.modelConnection}</h2>
+          <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1">
+            <dt className="text-muted">{strings.configuredProvider}</dt>
+            <dd>{modelConfig.provider === 'ollama' ? 'Ollama' : modelConfig.provider === 'legacy' ? strings.legacyProvider : 'OpenAI-compatible API'}</dd>
+            <dt className="text-muted">{strings.configuredAuth}</dt>
+            <dd>{modelConfig.auth === 'entra' ? 'Microsoft Entra ID' : strings.apiKeyAuth}</dd>
+            <dt className="text-muted">{strings.configuredModel}</dt>
+            <dd className="break-all font-mono">{modelConfig.model ?? strings.modelNotSet}</dd>
+          </dl>
+          <p className="mt-2 text-xs text-muted">{strings.modelConfigNote}</p>
 
-        <details className="mt-4 border-t border-border pt-3">
-          <summary className="cursor-pointer font-semibold">{strings.apiSetup}</summary>
-          <div className="mt-3 space-y-3">
-            <p>{strings.apiSetupIntro}</p>
-            <pre className="whitespace-pre-wrap break-all rounded-lg bg-panel-2 p-3 text-xs"><code>{`LLM_PROVIDER=openai-compatible
-LLM_AUTH=api-key
-LLM_BASE_URL=https://api.openai.com/v1
-LLM_MODEL=YOUR_TOOL_CAPABLE_MODEL
-LLM_API_KEY=YOUR_API_KEY`}</code></pre>
-            <p>{strings.apiSetupKey}</p>
-            <p>{strings.apiDockerOverride}</p>
-            <p className="text-muted">{strings.modelPrivacy}</p>
-          </div>
-        </details>
+          <details className="mt-4 border-t border-border pt-3">
+            <summary className="cursor-pointer font-semibold">{strings.apiSetup}</summary>
+            <div className="mt-3 space-y-3">
+              <p>{strings.apiSetupIntro}</p>
+              <pre className="whitespace-pre-wrap break-all rounded-lg bg-panel-2 p-3 text-xs"><code>{`LLM_PROVIDER=openai-compatible
+  LLM_AUTH=api-key
+  LLM_BASE_URL=https://api.openai.com/v1
+  LLM_MODEL=YOUR_TOOL_CAPABLE_MODEL
+  LLM_API_KEY=YOUR_API_KEY`}</code></pre>
+              <p>{strings.apiSetupKey}</p>
+              <p>{strings.apiDockerOverride}</p>
+              <p className="text-muted">{strings.modelPrivacy}</p>
+            </div>
+          </details>
 
-        <details className="mt-3 border-t border-border pt-3">
-          <summary className="cursor-pointer font-semibold">{strings.entraSetup}</summary>
-          <div className="mt-3 space-y-3">
-            <p>{strings.entraIntro}</p>
-            <pre className="whitespace-pre-wrap break-all rounded-lg bg-panel-2 p-3 text-xs"><code>{`LLM_PROVIDER=openai-compatible
-LLM_AUTH=entra
-LLM_BASE_URL=https://api.staging.example.com/openai/v1
-LLM_MODEL=YOUR_DEPLOYMENT_NAME
-ENTRA_SCOPE=api://api.staging.example.com/.default
-ENTRA_AUTH_MODE=cli
-LLM_TEMPERATURE=omit`}</code></pre>
-            <p>{strings.entraCli}</p>
-            <pre className="whitespace-pre-wrap break-all rounded-lg bg-panel-2 p-3 text-xs"><code>az login --tenant YOUR_TENANT_ID --allow-no-subscriptions</code></pre>
-            <p>{strings.entraServicePrincipal}</p>
-            <pre className="whitespace-pre-wrap break-all rounded-lg bg-panel-2 p-3 text-xs"><code>{`ENTRA_AUTH_MODE=sp
-AZURE_TENANT_ID=YOUR_TENANT_ID
-AZURE_CLIENT_ID=YOUR_APPLICATION_ID
-AZURE_CLIENT_SECRET=YOUR_CLIENT_SECRET`}</code></pre>
-            <p>{strings.entraManagedIdentity}</p>
-            <p>{strings.entraProduction}</p>
-            <p>{strings.entraCa}</p>
-            <p>{strings.apiDockerOverride}</p>
-          </div>
-        </details>
+          <details className="mt-3 border-t border-border pt-3">
+            <summary className="cursor-pointer font-semibold">{strings.entraSetup}</summary>
+            <div className="mt-3 space-y-3">
+              <p>{strings.entraIntro}</p>
+              <pre className="whitespace-pre-wrap break-all rounded-lg bg-panel-2 p-3 text-xs"><code>{`LLM_PROVIDER=openai-compatible
+  LLM_AUTH=entra
+  LLM_BASE_URL=https://api.staging.example.com/openai/v1
+  LLM_MODEL=YOUR_DEPLOYMENT_NAME
+  ENTRA_SCOPE=api://api.staging.example.com/.default
+  ENTRA_AUTH_MODE=cli
+  LLM_TEMPERATURE=omit`}</code></pre>
+              <p>{strings.entraCli}</p>
+              <pre className="whitespace-pre-wrap break-all rounded-lg bg-panel-2 p-3 text-xs"><code>az login --tenant YOUR_TENANT_ID --allow-no-subscriptions</code></pre>
+              <p>{strings.entraServicePrincipal}</p>
+              <pre className="whitespace-pre-wrap break-all rounded-lg bg-panel-2 p-3 text-xs"><code>{`ENTRA_AUTH_MODE=sp
+  AZURE_TENANT_ID=YOUR_TENANT_ID
+  AZURE_CLIENT_ID=YOUR_APPLICATION_ID
+  AZURE_CLIENT_SECRET=YOUR_CLIENT_SECRET`}</code></pre>
+              <p>{strings.entraManagedIdentity}</p>
+              <p>{strings.entraProduction}</p>
+              <p>{strings.entraCa}</p>
+              <p>{strings.apiDockerOverride}</p>
+            </div>
+          </details>
 
-        <details className="mt-3 border-t border-border pt-3">
-          <summary className="cursor-pointer font-semibold">{strings.ollamaSetup}</summary>
-          <div className="mt-3 space-y-3">
-            <p>{strings.ollamaNative}</p>
-            <pre className="whitespace-pre-wrap break-all rounded-lg bg-panel-2 p-3 text-xs"><code>{`ollama pull qwen3:4b-instruct
+          <details className="mt-3 border-t border-border pt-3">
+            <summary className="cursor-pointer font-semibold">{strings.ollamaSetup}</summary>
+            <div className="mt-3 space-y-3">
+              <p>{strings.ollamaNative}</p>
+              <pre className="whitespace-pre-wrap break-all rounded-lg bg-panel-2 p-3 text-xs"><code>{`ollama pull qwen3:4b-instruct
 
-LLM_PROVIDER=ollama
-LLM_AUTH=api-key
-LLM_BASE_URL=http://localhost:11434/v1
-LLM_MODEL=qwen3:4b-instruct
-LLM_API_KEY=ollama`}</code></pre>
-            <p>{strings.ollamaDocker}</p>
-            <pre className="whitespace-pre-wrap break-all rounded-lg bg-panel-2 p-3 text-xs"><code>{`LLM_BASE_URL_DOCKER=http://ollama:11434/v1
+  LLM_PROVIDER=ollama
+  LLM_AUTH=api-key
+  LLM_BASE_URL=http://localhost:11434/v1
+  LLM_MODEL=qwen3:4b-instruct
+  LLM_API_KEY=ollama`}</code></pre>
+              <p>{strings.ollamaDocker}</p>
+              <pre className="whitespace-pre-wrap break-all rounded-lg bg-panel-2 p-3 text-xs"><code>{`LLM_BASE_URL_DOCKER=http://ollama:11434/v1
 
-docker compose --profile ollama up -d --build`}</code></pre>
-            <p>{strings.ollamaHost}</p>
-            <p>{strings.ollamaProd}</p>
-          </div>
-        </details>
+  docker compose --profile ollama up -d --build`}</code></pre>
+              <p>{strings.ollamaHost}</p>
+              <p>{strings.ollamaProd}</p>
+            </div>
+          </details>
 
-        <details className="mt-3 border-t border-border pt-3">
-          <summary className="cursor-pointer font-semibold">{strings.modelApply}</summary>
-          <div className="mt-3 space-y-3">
-            <p>{strings.modelEnv}</p>
-            <p>{strings.modelRestart}</p>
-            <pre className="whitespace-pre-wrap break-all rounded-lg bg-panel-2 p-3 text-xs"><code>docker compose up -d --build --force-recreate agent frontend</code></pre>
-            <p>{strings.modelFallback}</p>
-            <p>{strings.modelTroubleshooting}</p>
-          </div>
-        </details>
-      </section>
+          <details className="mt-3 border-t border-border pt-3">
+            <summary className="cursor-pointer font-semibold">{strings.modelApply}</summary>
+            <div className="mt-3 space-y-3">
+              <p>{strings.modelEnv}</p>
+              <p>{strings.modelRestart}</p>
+              <pre className="whitespace-pre-wrap break-all rounded-lg bg-panel-2 p-3 text-xs"><code>docker compose up -d --build --force-recreate agent frontend</code></pre>
+              <p>{strings.modelFallback}</p>
+              <p>{strings.modelTroubleshooting}</p>
+            </div>
+          </details>
+        </section>
+      )}
 
       <div>
         <h2 className="text-lg font-semibold">{strings.speechSettings}</h2>
         <p className="mt-2 text-muted">{strings.settingsIntro}</p>
       </div>
+
+      <label className="flex items-start gap-2 rounded-xl border border-border bg-panel p-4 text-sm">
+        <input
+          type="checkbox"
+          checked={continuous}
+          onChange={(e) => {
+            setContinuous(e.target.checked);
+            saveContinuous(e.target.checked);
+          }}
+          className="mt-0.5 accent-accent"
+        />
+        <span>
+          <span className="font-semibold">{strings.continuousMode}</span>
+          <span className="block text-xs text-muted">{strings.continuousModeNote}</span>
+        </span>
+      </label>
 
       <section className="rounded-xl border border-border bg-panel p-4 text-sm">
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">{strings.thisBrowser}</h2>

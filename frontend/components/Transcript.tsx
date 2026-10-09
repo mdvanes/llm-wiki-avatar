@@ -12,6 +12,8 @@ interface Props {
   /** Shown as a placeholder user message while the user's speech is being heard or transcribed. */
   pendingSpeech?: string;
   onWikiLink?: (target: string) => void;
+  /** Show only the last few lines, clipped; for small screens. */
+  maxEntries?: number;
 }
 
 function isFromUser(message: ReceivedMessage): boolean {
@@ -24,7 +26,8 @@ export function toTranscriptEntry(message: ReceivedMessage): TranscriptEntry {
   return { id: message.id, fromUser: isFromUser(message), text: message.message, timestamp: message.timestamp };
 }
 
-export function Transcript({ messages, emptyText, thinking, pendingSpeech, onWikiLink }: Props) {
+export function Transcript({ messages, emptyText, thinking, pendingSpeech, onWikiLink, maxEntries }: Props) {
+  const shown = maxEntries ? messages.slice(-maxEntries) : messages;
   const endRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -34,13 +37,13 @@ export function Transcript({ messages, emptyText, thinking, pendingSpeech, onWik
     return <p className="p-4 text-sm text-muted">{emptyText}</p>;
   }
   return (
-    <ol className="flex flex-col gap-3 p-4">
-      {messages.map((m) => {
+    <ol className={`flex flex-col ${maxEntries ? 'gap-2 p-3' : 'gap-3 p-4'}`}>
+      {shown.map((m) => {
         const user = m.fromUser;
         return (
           <li key={m.id} className={`flex ${user ? 'justify-end' : 'justify-start'}`}>
             <div
-              className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-sm ${
+              className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-sm ${maxEntries ? 'line-clamp-2' : ''} ${
                 user ? 'rounded-br-sm bg-accent/20 text-fg' : 'rounded-bl-sm bg-panel-2 text-fg'
               }`}
             >

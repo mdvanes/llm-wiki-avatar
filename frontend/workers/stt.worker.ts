@@ -4,9 +4,10 @@ import { MODEL_CACHE, fetchToCache } from '@/lib/stt/cache';
 import type { SttRequest, SttResponse } from '@/lib/stt/client';
 import type { LoadSpec } from '@/lib/stt/models';
 import { FileProgress } from '@/lib/stt/progress';
+import { withBase } from '@/lib/basePath';
 
 const TASK = 'automatic-speech-recognition';
-const ORT = new URL('/speech/ort/', self.location.origin).href;
+const ORT = new URL(withBase('/speech/ort/'), self.location.origin).href;
 
 env.allowLocalModels = false;
 // Served by the frontend (scripts/copy-speech-assets.mjs) instead of the default CDN.

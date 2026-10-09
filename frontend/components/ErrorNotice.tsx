@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { Problem } from '@/lib/diagnostics';
 import type { Strings } from '@/lib/language';
+import { withBase } from '@/lib/basePath';
 
 interface Props {
   problem: Problem;
@@ -54,7 +55,7 @@ export function ErrorNotice({ problem, strings, onDismiss, className = '' }: Pro
       )}
       {problem.settingsLink && (
         <a
-          href="/settings#model-connection"
+          href={withBase('/settings#model-connection')}
           target="_blank"
           rel="noopener"
           className="mt-3 inline-block text-xs text-accent underline"

@@ -78,6 +78,18 @@ Browser (Next.js)                                         agent (Node, @livekit/
     from the reply and sets the avatar's brows, eyes and smile (`frontend/lib/face.ts`).
   - Listening, thinking and speaking each drive their own idle behaviour.
 
+## Speech demo on GitHub Pages
+
+A static, backend-free build runs just the speech front end: what the microphone hears is transcribed in the browser (Whisper) and spoken back (Piper/Kokoro). Use it to try speech recognition and voice on a phone, for example on speakerphone in a car.
+
+- Deployed by `.github/workflows/pages.yml` on every push to `main`. One-time setup: repo **Settings → Pages → Source: GitHub Actions**.
+- Locally: `NEXT_PUBLIC_BASE_PATH=/llm-wiki-avatar npm run build:demo` writes `frontend/out/` (serve it below that sub-path; leave the variable out to serve from `/`).
+- Open **Settings** first and download a speech model (Whisper Base is the sensible start on a phone) and a voice. They come from Hugging Face once and are cached in the browser.
+- **Hands-free** (Settings): listens continuously and detects utterances, instead of push-to-talk. The microphone is ignored while a reply is spoken (and a moment after), otherwise the speakerphone would be heard as the user. Tap the mic to mute. The screen is kept awake while listening. This also works in the full app.
+- On small screens the history sidebar and the "On screen" card are hidden and only the last two transcript lines are shown.
+
+Car test checklist: Chrome on Android over HTTPS; try phone speaker and Bluetooth; note the "Last transcription" time and microphone settings (echo cancellation, sample rate) under *Diagnostics*. Bluetooth hands-free can lower microphone quality, and WebGPU is often unavailable on Android, so Whisper runs on the CPU.
+
 ## Requirements
 
 - Node.js 24 or later and npm (the agent runs TypeScript directly with Node's type stripping).

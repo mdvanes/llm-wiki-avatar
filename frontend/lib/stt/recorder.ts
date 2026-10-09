@@ -8,9 +8,11 @@ class Capture extends AudioWorkletProcessor {
     this.recording = false;
     this.buffer = new Float32Array(8192);
     this.length = 0;
+    this.limit = Infinity;
     this.port.onmessage = ({ data }) => {
-      if (data === 'start') {
+      if (data === 'start' || data === 'stream') {
         this.length = 0;
+        this.limit = data === 'stream' ? 1024 : Infinity;
         this.recording = true;
       } else if (data === 'stop') {
         this.recording = false;
@@ -30,6 +32,7 @@ class Capture extends AudioWorkletProcessor {
       if (this.length + channel.length > this.buffer.length) this.flush();
       this.buffer.set(channel, this.length);
       this.length += channel.length;
+      if (this.length >= this.limit) this.flush();
     }
     return true;
   }
@@ -50,14 +53,23 @@ export class MicRecorder {
   #chunks: Float32Array[] = [];
   #stopped: ((chunks: Float32Array[]) => void) | undefined;
   #recording = false;
+  readonly #track: MediaStreamTrack;
+  #onFrame: ((frame: Float32Array) => void) | undefined;
 
-  private constructor(context: AudioContext, source: MediaStreamAudioSourceNode, node: AudioWorkletNode) {
+  private constructor(
+    context: AudioContext,
+    source: MediaStreamAudioSourceNode,
+    node: AudioWorkletNode,
+    track: MediaStreamTrack,
+  ) {
+    this.#track = track;
     this.#context = context;
     this.#source = source;
     this.#node = node;
     node.port.onmessage = ({ data }: MessageEvent<Float32Array | null>) => {
       if (data) {
-        this.#chunks.push(data);
+        if (this.#onFrame) this.#onFrame(data);
+        else this.#chunks.push(data);
         return;
       }
       const chunks = this.#chunks;
@@ -81,7 +93,7 @@ export class MicRecorder {
     const mute = context.createGain();
     mute.gain.value = 0;
     source.connect(node).connect(mute).connect(context.destination);
-    return new MicRecorder(context, source, node);
+    return new MicRecorder(context, source, node, track);
   }
 
   get recording(): boolean {
@@ -94,6 +106,33 @@ export class MicRecorder {
     this.#chunks = [];
     this.#recording = true;
     this.#node.port.postMessage('start');
+  }
+
+  /** Continuous capture: hands every ~20 ms frame to `onFrame` until `stopStreaming`. */
+  async startStreaming(onFrame: (frame: Float32Array) => void): Promise<void> {
+    if (this.#context.state === 'suspended') await this.#context.resume();
+    this.#onFrame = onFrame;
+    this.#recording = true;
+    this.#node.port.postMessage('stream');
+  }
+
+  stopStreaming(): void {
+    this.#onFrame = undefined;
+    this.#recording = false;
+    this.#chunks = [];
+    this.#node.port.postMessage('stop');
+  }
+
+  get mediaStreamTrack(): MediaStreamTrack {
+    return this.#track;
+  }
+
+  get sampleRate(): number {
+    return this.#context.sampleRate;
+  }
+
+  resume(): Promise<void> {
+    return this.#context.resume();
   }
 
   stop(): Promise<Recording> {

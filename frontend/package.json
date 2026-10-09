@@ -8,7 +8,8 @@
     "build": "node scripts/copy-speech-assets.mjs && next build --webpack",
     "start": "node scripts/next.mjs start",
     "typecheck": "tsc --noEmit",
-    "test": "vitest --run"
+    "test": "vitest --run",
+    "build:demo": "node scripts/copy-speech-assets.mjs && NEXT_PUBLIC_DEMO=1 next build --webpack"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",

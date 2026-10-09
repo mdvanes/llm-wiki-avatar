@@ -1,8 +1,10 @@
+import { withBase } from '@/lib/basePath';
+
 /** Link to the speech settings. In a session it opens a new tab, so the conversation keeps running. */
 export function SettingsLink({ label, newTab = false }: { label: string; newTab?: boolean }) {
   return (
     <a
-      href="/settings"
+      href={withBase('/settings')}
       title={label}
       aria-label={label}
       {...(newTab ? { target: '_blank', rel: 'noopener' } : {})}

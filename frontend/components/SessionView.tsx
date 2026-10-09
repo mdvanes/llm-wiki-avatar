@@ -10,9 +10,12 @@ import type { AgentState } from '@livekit/components-react';
 import dynamic from 'next/dynamic';
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useConversationRecorder } from '@/hooks/useConversationRecorder';
+import { useContinuousMode } from '@/hooks/useContinuousMode';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { usePushToTalk } from '@/hooks/usePushToTalk';
 import { useReplySpeech, useVoice } from '@/hooks/useReplySpeech';
 import { useActiveSttModel } from '@/hooks/useSpeechRecognizer';
+import { useWakeLock } from '@/hooks/useWakeLock';
 import { useWikiStreams } from '@/hooks/useWikiStreams';
 import { describeAgentAbsence, describeAgentError } from '@/lib/diagnostics';
 import { type Conversation, mergeEntries, restorePayload } from '@/lib/history';
@@ -43,6 +46,7 @@ import { PresentationSelector } from './PresentationSelector';
 import { SettingsLink } from './SettingsLink';
 import { SourceChips } from './SourceChips';
 import { Transcript, toTranscriptEntry } from './Transcript';
+import { withBase } from '@/lib/basePath';
 
 // three.js is only loaded for the VRM avatar.
 const VrmAvatar = dynamic(() => import('./vrm/VrmAvatar').then((m) => m.VrmAvatar), {
@@ -217,14 +221,21 @@ export function SessionView({
   }, [agent.identity, localParticipant, stopSpeech]);
 
   const sttModel = useActiveSttModel();
+  const continuous = useContinuousMode();
+  const mobile = useIsMobile();
   const ptt = usePushToTalk({
     model: sttModel,
     language,
+    continuous,
+    // Hands-free: do not listen while the reply is written or spoken, or the speakers would be heard as the user.
+    paused: speech.state !== 'idle' || agent.state === 'thinking' || agent.state === 'speaking',
     onPress: interrupt,
     onResult: (text) => {
       if (text) void send(text);
     },
   });
+
+  useWakeLock(ptt.listening);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -258,7 +269,7 @@ export function SessionView({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
+      <header className="flex items-center justify-between gap-2 border-b border-border px-3 py-2.5 sm:gap-3 sm:px-4">
         <div className="flex min-w-0 items-center gap-3">
           {onShowHistory && <ShowHistoryButton onClick={onShowHistory} label={strings.showHistory} />}
           <span className="font-semibold">📚 LLM Wiki</span>
@@ -269,7 +280,8 @@ export function SessionView({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className="hidden items-center gap-3 md:flex">
           <PresentationSelector
             value={presentation}
             onChange={changePresentation}
@@ -282,6 +294,7 @@ export function SessionView({
             disabled={switching || !agent.isConnected}
             label={strings.language}
           />
+          </div>
           <SettingsLink label={strings.settings} newTab />
           <button
             type="button"
@@ -321,7 +334,7 @@ export function SessionView({
                   loadingLabel={strings.loadingAvatar}
                   unavailableLabel={strings.avatarUnavailable}
                   madeBy={strings.madeBy}
-                  className="h-[50vh] min-h-[240px]"
+                  className="h-[32vh] min-h-[180px] lg:h-[50vh] lg:min-h-[240px]"
                   audioTrack={speech.player?.track}
                   agentState={agentState}
                   mood={mood}
@@ -343,7 +356,7 @@ export function SessionView({
             {voiceNotice && (
               <p className="border-t border-border px-3 py-2 text-xs text-muted">
                 {voiceNotice}{' '}
-                <a href="/settings" target="_blank" rel="noopener" className="text-accent underline">
+                <a href={withBase('/settings')} target="_blank" rel="noopener" className="text-accent underline">
                   {strings.speechSettings}
                 </a>
               </p>
@@ -378,7 +391,7 @@ export function SessionView({
               )}
             </form>
           </div>
-          <div className="flex min-h-[160px] flex-1 flex-col rounded-xl border border-border bg-panel">
+          <div className="hidden min-h-[160px] flex-1 flex-col rounded-xl border border-border bg-panel lg:flex">
             <h2 className="border-b border-border px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted">
               {strings.onScreen}
             </h2>
@@ -398,14 +411,15 @@ export function SessionView({
           </div>
         </section>
 
-        <section className="flex min-h-[320px] flex-col rounded-xl border border-border bg-panel">
-          <h2 className="border-b border-border px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted">
+        <section className="flex min-h-0 flex-col rounded-xl border border-border bg-panel lg:min-h-[320px]">
+          <h2 className="hidden border-b border-border px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted lg:block">
             {strings.transcript}
           </h2>
           <div className="min-h-0 flex-1 overflow-y-auto">
             <Transcript
               messages={shownEntries}
               emptyText={strings.empty}
+              maxEntries={mobile ? 2 : undefined}
               thinking={phase === 'thinking'}
               pendingSpeech={phase === 'hearing' || phase === 'transcribing' ? phaseLabel(phase, strings) : undefined}
               onWikiLink={(name) => setPage({ name })}

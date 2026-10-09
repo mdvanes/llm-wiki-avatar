@@ -12,9 +12,10 @@ import {
   normalizeEnglish,
 } from '@/lib/tts/kokoro';
 import { type VoiceSpec, voiceFiles } from '@/lib/tts/voices';
+import { withBase } from '@/lib/basePath';
 
-const ORT = new URL('/speech/ort/', self.location.origin).href;
-const PIPER = new URL('/speech/piper/', self.location.origin).href;
+const ORT = new URL(withBase('/speech/ort/'), self.location.origin).href;
+const PIPER = new URL(withBase('/speech/piper/'), self.location.origin).href;
 
 env.allowLocalModels = false;
 // Also used by the Piper sessions: transformers.js and this worker share one onnxruntime-web.

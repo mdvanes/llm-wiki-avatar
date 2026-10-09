@@ -37,7 +37,7 @@ export function HistorySidebar({ conversations, activeId, strings, language, onS
   const groups = useMemo(() => groupHistory(conversations, Date.now()), [conversations]);
 
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-panel" aria-label={strings.history}>
+    <aside className="hidden h-full w-64 md:flex shrink-0 flex-col border-r border-border bg-panel" aria-label={strings.history}>
       <div className="flex items-center justify-between px-4 py-3">
         <h2 className="text-sm font-semibold">{strings.history}</h2>
         <button
@@ -108,7 +108,7 @@ export function ShowHistoryButton({ onClick, label }: { onClick: () => void; lab
       onClick={onClick}
       title={label}
       aria-label={label}
-      className="rounded-md p-1 text-muted hover:bg-panel-2 hover:text-fg"
+      className="hidden rounded-md p-1 text-muted hover:bg-panel-2 hover:text-fg md:block"
     >
       <SidebarIcon />
     </button>

@@ -3,11 +3,13 @@
 import { SessionProvider, useSession } from '@livekit/components-react';
 import { DisconnectReason, RoomEvent, TokenSource } from 'livekit-client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { IS_DEMO } from '@/lib/basePath';
 import { type Problem, describeConnectionError, describeDisconnect, isUnexpectedDisconnect } from '@/lib/diagnostics';
 import { type Conversation, clearHistory, deleteConversation, loadHistory, saveConversation } from '@/lib/history';
 import { type Language, STRINGS, type Strings, loadLanguage, saveLanguage } from '@/lib/language';
 import { type Presentation, loadPresentation, savePresentation } from '@/lib/presentation';
 import { LANGUAGE_ATTRIBUTE } from '@/lib/protocol';
+import { DemoView } from './DemoView';
 import { ConversationViewer } from './ConversationViewer';
 import { HistorySidebar } from './HistorySidebar';
 import { SessionView } from './SessionView';
@@ -30,7 +32,12 @@ async function fetchLivekitUrl(): Promise<string | undefined> {
   }
 }
 
+/** The demo runs without an agent or LiveKit; the build flag is constant, so the same hooks run on every render. */
 export function App({ defaultPresentation }: { defaultPresentation: Presentation }) {
+  return IS_DEMO ? <DemoView defaultPresentation={defaultPresentation} /> : <LiveApp defaultPresentation={defaultPresentation} />;
+}
+
+function LiveApp({ defaultPresentation }: { defaultPresentation: Presentation }) {
   const [language, setLanguage] = useState<Language>('en');
   const [presentation, setPresentation] = useState<Presentation>(defaultPresentation);
   const [error, setError] = useState<ErrorState>();

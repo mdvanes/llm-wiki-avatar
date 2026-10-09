@@ -4,6 +4,7 @@ import { useTrackVolume } from '@livekit/components-react';
 import { useEffect } from 'react';
 import type { PushToTalk } from '@/hooks/usePushToTalk';
 import type { Strings } from '@/lib/language';
+import { withBase } from '@/lib/basePath';
 
 /** Mic level (0–1) from which the input counts as speech rather than room noise. */
 export const SPEECH_LEVEL = 0.04;
@@ -67,7 +68,7 @@ function usePushToTalkKey({ press, release }: PushToTalk, enabled: boolean) {
 export function MicButton({ ptt, strings }: Props) {
   const level = useTrackVolume(ptt.track);
   const { status } = ptt;
-  usePushToTalkKey(ptt, status.kind === 'ready');
+  usePushToTalkKey(ptt, status.kind === 'ready' && !ptt.continuous);
 
   if (status.kind !== 'ready') {
     const title =
@@ -78,7 +79,7 @@ export function MicButton({ ptt, strings }: Props) {
           : strings.noSpeechModel;
     return (
       <a
-        href="/settings"
+        href={withBase('/settings')}
         target="_blank"
         rel="noopener"
         title={title}
@@ -92,6 +93,32 @@ export function MicButton({ ptt, strings }: Props) {
         <MicIcon muted={status.kind !== 'loading'} />
         {status.kind === 'loading' && <span>{Math.round(status.progress * 100)}%</span>}
       </a>
+    );
+  }
+
+  if (ptt.continuous) {
+    const ring = ptt.listening ? ringSize(level) : 0;
+    const label = ptt.error ? strings.micUnavailable : ptt.listening ? strings.listening : strings.micOff;
+    return (
+      <button
+        type="button"
+        title={label}
+        aria-label={label}
+        aria-pressed={ptt.listening}
+        data-speech={ring > 0 || undefined}
+        onClick={ptt.toggleListening}
+        style={{ boxShadow: ring ? `0 0 0 ${ring}px color-mix(in srgb, var(--color-accent) 35%, transparent)` : undefined }}
+        className={`flex h-12 min-w-12 shrink-0 select-none items-center justify-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-[box-shadow,background-color,color] duration-100 sm:h-9 sm:min-w-0 ${
+          ptt.error
+            ? 'border-danger text-danger'
+            : ptt.listening
+              ? 'border-accent bg-accent text-bg'
+              : 'border-border text-muted hover:border-accent hover:text-accent'
+        }`}
+      >
+        <MicIcon muted={!ptt.listening} />
+        <span className="hidden sm:inline">{ptt.listening ? strings.listening : strings.micOff}</span>
+      </button>
     );
   }
 
@@ -115,7 +142,7 @@ export function MicButton({ ptt, strings }: Props) {
       onPointerCancel={() => ptt.release(false)}
       onContextMenu={(e) => e.preventDefault()}
       style={{ boxShadow: ring ? `0 0 0 ${ring}px color-mix(in srgb, var(--color-accent) 35%, transparent)` : undefined }}
-      className={`flex h-9 shrink-0 touch-none select-none items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-[box-shadow,background-color,color] duration-100 ${
+      className={`flex h-12 min-w-12 shrink-0 touch-none select-none items-center justify-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-[box-shadow,background-color,color] duration-100 sm:h-9 sm:min-w-0 ${
         ptt.held
           ? 'border-accent bg-accent text-bg'
           : ptt.error

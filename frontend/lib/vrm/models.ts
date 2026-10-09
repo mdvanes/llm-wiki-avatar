@@ -1,4 +1,5 @@
 import type { AvatarGender } from '../presentation';
+import { withBase } from '../basePath';
 
 export interface VrmModel {
   name: string;
@@ -9,6 +10,6 @@ export interface VrmModel {
 
 /** The 3D avatars, both by VTubeMe under CC BY 4.0. */
 export const VRM_MODELS: Record<AvatarGender, VrmModel> = {
-  female: { name: 'Ember', url: '/avatars/ember.vrm', creditUrl: 'https://vtubeme.com' },
-  male: { name: 'Nova', url: '/avatars/nova.vrm', creditUrl: 'https://vtubeme.com' },
+  female: { name: 'Ember', url: withBase('/avatars/ember.vrm'), creditUrl: 'https://vtubeme.com' },
+  male: { name: 'Nova', url: withBase('/avatars/nova.vrm'), creditUrl: 'https://vtubeme.com' },
 };
