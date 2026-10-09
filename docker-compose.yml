@@ -51,6 +51,7 @@ services:
       LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.3}
       LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-90}
       LLM_REASONING_EFFORT: ${LLM_REASONING_EFFORT:-}
+      LLM_PREFLIGHT: ${LLM_PREFLIGHT:-true}
       DEFAULT_LANGUAGE: ${DEFAULT_LANGUAGE:-en}
     volumes:
       - ./sample-wiki:/app/sample-wiki:ro

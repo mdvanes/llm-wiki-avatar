@@ -14,6 +14,7 @@ import { usePushToTalk } from '@/hooks/usePushToTalk';
 import { useReplySpeech, useVoice } from '@/hooks/useReplySpeech';
 import { useActiveSttModel } from '@/hooks/useSpeechRecognizer';
 import { useWikiStreams } from '@/hooks/useWikiStreams';
+import { describeAgentAbsence, describeAgentError } from '@/lib/diagnostics';
 import { type Conversation, mergeEntries, restorePayload } from '@/lib/history';
 import type { Language, Strings } from '@/lib/language';
 import {
@@ -23,7 +24,7 @@ import {
   loadInstantTranscript,
   voiceOf,
 } from '@/lib/presentation';
-import { RPC_INTERRUPT, RPC_RESTORE_HISTORY, RPC_SET_LANGUAGE } from '@/lib/protocol';
+import { type AgentError, RPC_INTERRUPT, RPC_RESTORE_HISTORY, RPC_SET_LANGUAGE } from '@/lib/protocol';
 import {
   type Phase,
   TRANSCRIPT_GRACE_MS,
@@ -33,6 +34,7 @@ import {
 } from '@/lib/status';
 import { AnswerCard } from './AnswerCard';
 import { ConversationStatus, phaseLabel } from './ConversationStatus';
+import { ErrorNotice } from './ErrorNotice';
 import { LanguageSelector } from './LanguageSelector';
 import { ShowHistoryButton } from './HistorySidebar';
 import { MicButton } from './MicButton';
@@ -107,6 +109,20 @@ function useSettledPhase(phase: Phase): Phase {
   return shown;
 }
 
+/**
+ * The latest LLM error from the agent, until the user dismisses it or the agent replies again.
+ * Both timestamps come from the agent's clock.
+ */
+function useShownAgentError(
+  agentError: AgentError | undefined,
+  entries: ReadonlyArray<{ fromUser: boolean; timestamp: number; text: string }>,
+) {
+  const [dismissed, setDismissed] = useState<AgentError>();
+  const repliedSince = !!agentError && entries.some((m) => !m.fromUser && m.text.trim() && m.timestamp > agentError.timestamp);
+  const shown = agentError && agentError !== dismissed && !repliedSince ? agentError : undefined;
+  return { shown, dismiss: () => setDismissed(agentError) };
+}
+
 /** The "show dialog without delay" setting; follows changes made on the settings page. */
 function useInstantTranscript(): boolean {
   const [instant, setInstant] = useState(false);
@@ -136,7 +152,7 @@ export function SessionView({
   const agent = useAgent();
   const { localParticipant } = useLocalParticipant();
   const { messages, send } = useSessionMessages();
-  const { mood, answers, sources, agentLanguage } = useWikiStreams();
+  const { mood, answers, sources, agentLanguage, agentError } = useWikiStreams();
   const [page, setPage] = useState<PageRef | null>(null);
   const [draft, setDraft] = useState('');
   const [switching, setSwitching] = useState(false);
@@ -149,6 +165,8 @@ export function SessionView({
   const allAnswers = useMemo(() => mergeEntries(previous?.answers ?? [], answers), [previous, answers]);
   useConversationRecorder({ id: conversationId, previous, messages: entries, answers: allAnswers, language, onSave });
   useRestoreHistory(previous, agent.isConnected ? agent.identity : undefined);
+  const llmError = useShownAgentError(agentError, current);
+  const reconnecting = session.connectionState === 'reconnecting' || session.connectionState === 'signalReconnecting';
 
   // The agent announces its language on start and after each switch; keep the selector in sync.
   useEffect(() => {
@@ -275,10 +293,20 @@ export function SessionView({
         </div>
       </header>
 
-      {agent.state === 'failed' && (
-        <p className="border-b border-danger/40 bg-danger/10 px-4 py-2 text-sm text-danger">
-          {agent.failureReasons.join(' ')} Is the agent running (npm run dev -w agent)?
+      {reconnecting && (
+        <p role="status" className="border-b border-border bg-panel-2 px-4 py-2 text-sm text-muted">
+          {strings.errReconnecting}
         </p>
+      )}
+      {(llmError.shown || agent.state === 'failed') && (
+        <div className="flex max-h-[45vh] flex-col gap-2 overflow-y-auto border-b border-border p-3">
+          {llmError.shown && (
+            <ErrorNotice problem={describeAgentError(llmError.shown, strings)} strings={strings} onDismiss={llmError.dismiss} />
+          )}
+          {agent.state === 'failed' && (
+            <ErrorNotice problem={describeAgentAbsence(agent.failureReasons, strings)} strings={strings} />
+          )}
+        </div>
       )}
 
       <main className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:overflow-hidden">

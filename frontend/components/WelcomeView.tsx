@@ -1,8 +1,10 @@
 'use client';
 
 import { useActiveSttModel } from '@/hooks/useSpeechRecognizer';
+import type { Problem } from '@/lib/diagnostics';
 import type { Language, Strings } from '@/lib/language';
 import type { Presentation } from '@/lib/presentation';
+import { ErrorNotice } from './ErrorNotice';
 import { ShowHistoryButton } from './HistorySidebar';
 import { LanguageSelector } from './LanguageSelector';
 import { PresentationSelector } from './PresentationSelector';
@@ -16,7 +18,8 @@ interface Props {
   onPresentationChange: (presentation: Presentation) => void;
   onStart: () => void;
   connecting: boolean;
-  error?: string;
+  error?: Problem;
+  onDismissError?: () => void;
   /** Set when the history sidebar is hidden. */
   onShowHistory?: () => void;
 }
@@ -30,6 +33,7 @@ export function WelcomeView({
   onStart,
   connecting,
   error,
+  onDismissError,
   onShowHistory,
 }: Props) {
   const sttModel = useActiveSttModel();
@@ -67,7 +71,7 @@ export function WelcomeView({
         >
           {connecting ? strings.connecting : strings.start}
         </button>
-        {error && <p className="text-sm text-danger">{error}</p>}
+        {error && <ErrorNotice problem={error} strings={strings} onDismiss={onDismissError} className="w-full" />}
       </div>
     </main>
   );

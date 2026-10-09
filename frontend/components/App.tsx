@@ -1,10 +1,11 @@
 'use client';
 
 import { SessionProvider, useSession } from '@livekit/components-react';
-import { TokenSource } from 'livekit-client';
+import { DisconnectReason, RoomEvent, TokenSource } from 'livekit-client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type Problem, describeConnectionError, describeDisconnect, isUnexpectedDisconnect } from '@/lib/diagnostics';
 import { type Conversation, clearHistory, deleteConversation, loadHistory, saveConversation } from '@/lib/history';
-import { type Language, STRINGS, loadLanguage, saveLanguage } from '@/lib/language';
+import { type Language, STRINGS, type Strings, loadLanguage, saveLanguage } from '@/lib/language';
 import { type Presentation, loadPresentation, savePresentation } from '@/lib/presentation';
 import { LANGUAGE_ATTRIBUTE } from '@/lib/protocol';
 import { ConversationViewer } from './ConversationViewer';
@@ -15,10 +16,24 @@ import { WelcomeView } from './WelcomeView';
 const tokenSource = TokenSource.endpoint('/api/token');
 const SIDEBAR_KEY = 'llm-wiki-avatar.historySidebar';
 
+/** Kept as a function of the strings, so the notice follows a language switch. */
+export type ErrorState = (strings: Strings) => Problem;
+
+/** The LiveKit URL the browser tried; only asked for after a failure. */
+async function fetchLivekitUrl(): Promise<string | undefined> {
+  try {
+    const res = await fetch('/api/health', { cache: 'no-store' });
+    const body = (await res.json()) as { livekitUrl?: unknown };
+    return typeof body.livekitUrl === 'string' ? body.livekitUrl : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function App({ defaultPresentation }: { defaultPresentation: Presentation }) {
   const [language, setLanguage] = useState<Language>('en');
   const [presentation, setPresentation] = useState<Presentation>(defaultPresentation);
-  const [error, setError] = useState<string>();
+  const [error, setError] = useState<ErrorState>();
   const [starting, setStarting] = useState(false);
   const [history, setHistory] = useState<Conversation[]>([]);
   const [viewing, setViewing] = useState<Conversation>();
@@ -67,7 +82,9 @@ export function App({ defaultPresentation }: { defaultPresentation: Presentation
     try {
       await session.start();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      console.warn('could not start the conversation', err);
+      const livekitUrl = await fetchLivekitUrl();
+      setError(() => (s: Strings) => describeConnectionError(err, livekitUrl, s));
     } finally {
       setStarting(false);
     }
@@ -81,6 +98,20 @@ export function App({ defaultPresentation }: { defaultPresentation: Presentation
     if (wasConnected.current && !session.isConnected) setContinuing(undefined);
     wasConnected.current = session.isConnected;
   }, [session.isConnected]);
+  // A dropped connection used to just return to the welcome screen; explain it there instead.
+  const room = session.room;
+  useEffect(() => {
+    const onDisconnected = (reason?: DisconnectReason) => {
+      if (!wasConnected.current || !isUnexpectedDisconnect(reason)) return;
+      console.warn('LiveKit connection lost', reason === undefined ? 'UNKNOWN' : DisconnectReason[reason]);
+      setError(() => (s: Strings) => describeDisconnect(reason, s));
+    };
+    room.on(RoomEvent.Disconnected, onDisconnected);
+    return () => {
+      room.off(RoomEvent.Disconnected, onDisconnected);
+    };
+  }, [room]);
+
   const showHistory = sidebarOpen ? undefined : () => toggleSidebar(true);
 
   return (
@@ -122,7 +153,8 @@ export function App({ defaultPresentation }: { defaultPresentation: Presentation
               onPresentationChange={changePresentation}
               onStart={() => void start()}
               connecting={connecting}
-              error={error}
+              error={error?.(strings)}
+              onDismissError={() => setError(undefined)}
               onShowHistory={showHistory}
             />
           )}

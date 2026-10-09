@@ -14,6 +14,17 @@ export const dynamic = 'force-dynamic';
  * app behind your SSO/reverse proxy before exposing it more widely.
  */
 export async function POST(req: Request) {
+  try {
+    return await issueToken(req);
+  } catch (err) {
+    // Configuration errors (e.g. an invalid WIKI_SOURCES) carry no secrets; show them instead of a bare 500.
+    const error = err instanceof Error ? err.message : String(err);
+    console.error('token route failed:', error);
+    return NextResponse.json({ error }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
+  }
+}
+
+async function issueToken(req: Request) {
   const cfg = serverConfig();
   const body = (await req.json().catch(() => ({}))) as {
     participant_name?: string;

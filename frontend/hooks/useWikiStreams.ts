@@ -4,19 +4,29 @@ import { useTextStream } from '@livekit/components-react';
 import { useMemo } from 'react';
 import type { MoodEvent } from '@/hooks/useAvatarDriver';
 import { isLanguage, type Language } from '@/lib/language';
-import { type Answer, type Source, type SourcesUpdate, TOPICS, isMood, parseJson } from '@/lib/protocol';
+import {
+  type AgentError,
+  type Answer,
+  type Source,
+  type SourcesUpdate,
+  TOPICS,
+  isAgentError,
+  isMood,
+  parseJson,
+} from '@/lib/protocol';
 
 export interface AnswerEvent extends Answer {
   id: string;
   timestamp: number;
 }
 
-/** Side-channel data the agent publishes next to its replies: mood, on-screen answers, sources, language. */
+/** Side-channel data the agent publishes next to its replies: mood, on-screen answers, sources, language, errors. */
 export function useWikiStreams() {
   const { textStreams: moodStreams } = useTextStream(TOPICS.mood);
   const { textStreams: answerStreams } = useTextStream(TOPICS.answer);
   const { textStreams: sourceStreams } = useTextStream(TOPICS.sources);
   const { textStreams: languageStreams } = useTextStream(TOPICS.language);
+  const { textStreams: errorStreams } = useTextStream(TOPICS.error);
 
   const mood = useMemo<MoodEvent | undefined>(() => {
     const last = moodStreams.at(-1);
@@ -45,5 +55,13 @@ export function useWikiStreams() {
     return isLanguage(last) ? last : undefined;
   }, [languageStreams]);
 
-  return { mood, answers, sources, agentLanguage };
+  const agentError = useMemo<AgentError | undefined>(() => {
+    for (let i = errorStreams.length - 1; i >= 0; i--) {
+      const error = parseJson<unknown>(errorStreams[i]!.text);
+      if (isAgentError(error)) return error;
+    }
+    return undefined;
+  }, [errorStreams]);
+
+  return { mood, answers, sources, agentLanguage, agentError };
 }

@@ -79,6 +79,8 @@ const schema = z.object({
   /** Local models on CPU can take a while before the first token (prompt processing, model load). */
   LLM_TIMEOUT_S: z.coerce.number().positive().default(90),
   LLM_REASONING_EFFORT: z.enum(['none', 'minimal', 'low', 'medium', 'high']).optional(),
+  /** Send one tiny chat request when a session starts, to report LLM problems before the first question. */
+  LLM_PREFLIGHT: bool.default(true),
 
   DEFAULT_LANGUAGE: z.enum(SUPPORTED_LANGUAGES).default('en'),
 });

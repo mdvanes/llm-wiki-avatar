@@ -1,4 +1,5 @@
 import type { Room } from '@livekit/rtc-node';
+import type { LLMErrorCode, Provider } from './llmDiagnostics.ts';
 import type { Mood } from './mood.ts';
 
 /** Text-stream topics shared with the frontend (see frontend/lib/protocol.ts). */
@@ -7,6 +8,7 @@ export const TOPICS = {
   answer: 'wiki.answer',
   sources: 'wiki.sources',
   language: 'wiki.language',
+  error: 'wiki.error',
 } as const;
 
 export const RPC_SET_LANGUAGE = 'set_language';
@@ -33,12 +35,26 @@ export interface SourcesUpdate {
   sources: Source[];
 }
 
+/** An LLM failure, as codes and redacted facts; the frontend owns the (localized) wording. */
+export interface AgentErrorPayload {
+  code: LLMErrorCode;
+  provider: Provider;
+  model: string;
+  /** Origin plus path of the LLM base URL. */
+  endpoint: string;
+  status?: number;
+  detail?: string;
+  recoverable: boolean;
+  timestamp: number;
+}
+
 /** Side channel from the agent to the UI (mood, on-screen answers, sources used). */
 export interface Publisher {
   mood(mood: Mood): void;
   answer(answer: Answer): void;
   sources(update: SourcesUpdate): void;
   language(code: string): void;
+  error(payload: AgentErrorPayload): void;
 }
 
 export class RoomPublisher implements Publisher {
@@ -72,6 +88,10 @@ export class RoomPublisher implements Publisher {
   language(code: string): void {
     this.#send(TOPICS.language, code);
   }
+
+  error(payload: AgentErrorPayload): void {
+    this.#send(TOPICS.error, payload);
+  }
 }
 
 /** Publisher that just records events; used in tests and console mode. */
@@ -92,5 +112,9 @@ export class RecordingPublisher implements Publisher {
 
   language(code: string): void {
     this.events.push({ topic: TOPICS.language, payload: code });
+  }
+
+  error(payload: AgentErrorPayload): void {
+    this.events.push({ topic: TOPICS.error, payload });
   }
 }

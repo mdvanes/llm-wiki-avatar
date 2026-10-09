@@ -274,10 +274,34 @@ default and does not automatically read `.env.local`. To use it, add `--env-file
 command. Docker endpoint precedence is `LLM_BASE_URL_DOCKER`, then `LLM_BASE_URL`, then the Ollama-only
 `LLM_OLLAMA_BASE_URL` default supplied by Compose. Unset `LLM_PROVIDER` preserves legacy connection settings.
 
-For failures, check agent logs: authentication errors indicate a key problem; model-not-found usually means an
-incorrect model ID or endpoint; connection errors require checking service availability and Docker hostnames.
-Increase `LLM_TIMEOUT_S` for slow models. Remove unsupported reasoning/temperature options or choose a compatible
-model. The frontend settings page includes these troubleshooting steps.
+### Troubleshooting
+
+Failures are shown in the app as a notice with numbered fix steps (in English or Dutch). The agent classifies LLM
+errors, logs them with a `hint`, and publishes only an error code and redacted facts (provider, model, endpoint
+without query string, HTTP status) on the `wiki.error` channel; keys and tokens never reach the logs or the UI. When
+a session starts, the agent sends one tiny chat request (`LLM_PREFLIGHT`) so configuration problems show up before
+the first question; it logs `LLM reachable (Xms)` on success. View the agent logs with `docker compose logs -f agent`
+or in the terminal running `npm run dev -w agent`.
+
+| Symptom | On-screen message | Fix |
+|---|---|---|
+| Start fails right away | Cannot reach LiveKit | Start `livekit-server --dev` or `docker compose up -d livekit`; check ports 7880/7881 (TCP) and 7882 (UDP) and that the browser can reach `LIVEKIT_URL`. |
+| Start fails right away | Could not get an access token | The token route failed; the notice shows its reason (for example an invalid `WIKI_SOURCES`). Check the frontend logs. |
+| Start fails right away | LiveKit rejected the credentials | `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` must match for LiveKit, agent and frontend. |
+| “Waiting for the agent…”, then a notice after about 20 s | The agent did not join | Start the agent; check that it uses the same `LIVEKIT_URL`, key, secret and `AGENT_NAME` as the frontend. |
+| Notice after starting or asking (Ollama) | The language model is unreachable | Run `ollama serve`; check `LLM_BASE_URL`. A Docker agent needs `host.docker.internal`, not `localhost`. |
+| Notice after starting or asking (Ollama) | The model was not found | `ollama pull <LLM_MODEL>`. |
+| Notice after starting or asking (API) | The language model rejected the credentials (401/403) | Check `LLM_API_KEY`; for Entra check `ENTRA_SCOPE`, tenant and gateway roles. |
+| Notice after starting or asking (API) | Could not sign in with Microsoft Entra ID | `az login` (cli mode) or check `ENTRA_AUTH_MODE` and the `AZURE_*` credentials. |
+| Notice after starting or asking (API) | The model was not found (404) | Check `LLM_MODEL` (deployment name for gateways) and the `/v1` path in `LLM_BASE_URL`. |
+| Notice after starting or asking (API) | The language model is unreachable | Check `LLM_BASE_URL`, DNS/VPN/proxy, and `NODE_EXTRA_CA_CERTS` for a private CA. |
+| Notice after asking | The language model rejected the request (400) | Use `LLM_TEMPERATURE=omit`, unset `LLM_REASONING_EFFORT`, and choose a model with streaming and tool calling. |
+| Notice after asking | Did not answer in time / rate limit / server error | Increase `LLM_TIMEOUT_S` or use a faster model; wait for quota; check the LLM service. |
+| Banner during a conversation | Connection to LiveKit interrupted. Reconnecting… | Usually recovers by itself. If not, the welcome screen shows “Connection to LiveKit lost” with the reason. |
+| Notice during a conversation | The agent left the conversation | The LLM failed repeatedly or the agent crashed; see the agent logs and start a new conversation. |
+
+The agent retries failed LLM calls a few times before giving up, so with a long `LLM_TIMEOUT_S` the first notice can
+take a while. The frontend settings page includes more model troubleshooting steps.
 
 ## Production with docker compose
 
@@ -349,6 +373,7 @@ The settings you are most likely to change:
 | `LLM_TEMPERATURE` | `0.3` | Between 0 and 2, or `omit` to leave the parameter out for models that reject it. |
 | `LLM_TIMEOUT_S` | `90` | Connection/first-response timeout in seconds, also passed through Compose. |
 | `LLM_REASONING_EFFORT` | unset | Set only when supported. For local `qwen3.5`, `none` gives a faster first word. |
+| `LLM_PREFLIGHT` | `true` | Send one tiny chat request when a session starts, to report LLM problems before the first question (and warm up Ollama). Costs a few tokens on paid APIs; set `false` to skip. |
 | `DEFAULT_VOICE` | `female` | `off`, `female` or `male`: the voice until the user picks one in the browser. |
 | `DEFAULT_LANGUAGE` | `en` | Used when the browser sends no language. |
 
